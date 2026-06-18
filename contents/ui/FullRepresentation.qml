@@ -94,13 +94,13 @@ Item {
 
         if (backend === "disabled") return;
 
-        activeCommandCallback = function(stdout, stderr, exitCode) {
+        var killCallback = function(stdout, stderr, exitCode) {
             console.log("STT_QML: arecord killed successfully. stdout: " + stdout + ", stderr: " + stderr + ", exitCode: " + exitCode);
             isRecording = false;
             processRecordedAudio();
         }
         console.log("STT_QML: Terminating arecord process via killall.");
-        executeCommandLine("killall arecord");
+        executeCommandLine("killall arecord", killCallback);
     }
 
     function processRecordedAudio() {
@@ -123,20 +123,20 @@ Item {
         var cmd = cli + " -m " + model + " -f /tmp/kde_assistant_voice.wav -l " + lang + " -otxt";
         console.log("STT_QML: Running local whisper transcription: " + cmd);
 
-        activeCommandCallback = function(stdout, stderr, exitCode) {
+        var whisperCallback = function(stdout, stderr, exitCode) {
             console.log("STT_QML: Local whisper finished. exitCode: " + exitCode);
             if (exitCode === 0) {
-                activeCommandCallback = function(catOut, catErr, catExit) {
+                var catCallback = function(catOut, catErr, catExit) {
                     console.log("STT_QML: cat output: " + catOut);
                     insertTextIntoInput(catOut);
                 }
-                executeCommandLine("cat /tmp/kde_assistant_voice.wav.txt");
+                executeCommandLine("cat /tmp/kde_assistant_voice.wav.txt", catCallback);
             } else {
                 sttErrorText = "Local Whisper transcription failed. Code " + exitCode;
                 console.log("STT_QML: " + sttErrorText + ". stderr: " + stderr);
             }
         }
-        executeCommandLine(cmd);
+        executeCommandLine(cmd, whisperCallback);
     }
 
     function transcribeInCloud() {
@@ -151,7 +151,7 @@ Item {
                       " -F language=" + lang;
         console.log("STT_QML: Sending transcription request to cloud...");
 
-        activeCommandCallback = function(stdout, stderr, exitCode) {
+        var cloudCallback = function(stdout, stderr, exitCode) {
             console.log("STT_QML: Cloud response received. exitCode: " + exitCode);
             if (exitCode === 0) {
                 try {
@@ -168,7 +168,7 @@ Item {
                 console.log("STT_QML: " + sttErrorText + ". stderr: " + stderr);
             }
         }
-        executeCommandLine(curlCmd);
+        executeCommandLine(curlCmd, cloudCallback);
     }
 
     function transcribeViaLms() {
@@ -182,7 +182,7 @@ Item {
                       " -F language=" + lang;
         console.log("STT_QML: Sending transcription request to LM Studio: " + curlCmd);
 
-        activeCommandCallback = function(stdout, stderr, exitCode) {
+        var lmsCallback = function(stdout, stderr, exitCode) {
             console.log("STT_QML: LM Studio response received. exitCode: " + exitCode);
             if (exitCode === 0) {
                 try {
@@ -199,14 +199,17 @@ Item {
                 console.log("STT_QML: " + sttErrorText + ". stderr: " + stderr);
             }
         }
-        executeCommandLine(curlCmd);
+        executeCommandLine(curlCmd, lmsCallback);
     }
 
     // ── Command execution state ──────────────────────────────────
-    property var activeCommandCallback: null
+    property var activeCallbacks: ({})
     property int activeAssistantIndex: -1
 
-    function executeCommandLine(cmd) {
+    function executeCommandLine(cmd, callback) {
+        if (callback) {
+            activeCallbacks[cmd] = callback;
+        }
         executableDataSource.connectSource(cmd);
     }
 
@@ -230,7 +233,7 @@ Item {
             messageModel.setProperty(assistantIndex, "commandOutput", "");
             messageModel.setProperty(assistantIndex, "commandStatus", "running");
 
-            activeCommandCallback = function (stdout, stderr, exitCode) {
+            var systemCallback = function (stdout, stderr, exitCode) {
                 var outputText = stdout || "";
                 if (stderr && stderr.trim() !== "") {
                     if (outputText)
@@ -262,7 +265,7 @@ Item {
                 var updatedMessages = buildMessageArray();
                 resumeStreaming(updatedMessages);
             };
-            executeCommandLine(cmdTag.command);
+            executeCommandLine(cmdTag.command, systemCallback);
         } else if (cmdTag.type === "grep") {
             var provider = Plasmoid.configuration.grepProvider || "grep";
             var limit = Plasmoid.configuration.grepMaxResults || 20;
@@ -280,7 +283,7 @@ Item {
             messageModel.setProperty(assistantIndex, "commandOutput", "");
             messageModel.setProperty(assistantIndex, "commandStatus", "running");
 
-            activeCommandCallback = function (stdout, stderr, exitCode) {
+            var grepCallback = function (stdout, stderr, exitCode) {
                 var outputText = stdout;
                 if (!stdout || stdout.trim() === "") {
                     outputText = "No search results found.";
@@ -303,7 +306,7 @@ Item {
                 var updatedMessages = buildMessageArray();
                 resumeStreaming(updatedMessages);
             };
-            executeCommandLine(grepCmd);
+            executeCommandLine(grepCmd, grepCallback);
         } else if (cmdTag.type === "setting") {
             messageModel.setProperty(assistantIndex, "role", "setting_approval");
             messageModel.setProperty(assistantIndex, "content", cmdTag.command + "\n\n" + cmdTag.description);
@@ -415,7 +418,7 @@ Item {
     function approveSetting(command, description, assistantIndex) {
         messageModel.setProperty(assistantIndex, "approvalStatus", "running");
 
-        activeCommandCallback = function (stdout, stderr, exitCode) {
+        var approvalCallback = function (stdout, stderr, exitCode) {
             var statusStr = exitCode === 0 ? "done" : "failed";
             var outputText = stdout;
             if (stderr)
@@ -450,7 +453,7 @@ Item {
             });
             resumeStreaming(updatedMessages);
         };
-        executeCommandLine(command);
+        executeCommandLine(command, approvalCallback);
     }
 
     function declineSetting(description, assistantIndex) {
@@ -493,9 +496,9 @@ Item {
 
             disconnectSource(sourceName);
 
-            if (activeCommandCallback) {
-                var cb = activeCommandCallback;
-                activeCommandCallback = null;
+            var cb = activeCallbacks[sourceName];
+            if (cb) {
+                delete activeCallbacks[sourceName];
                 cb(stdout, stderr, exitCode);
             }
         }
