@@ -7,13 +7,15 @@ import QtQuick
 import QtQuick.Controls as Controls
 import QtQuick.Layouts
 import QtQuick.LocalStorage as LS
+import QtQuick.Dialogs
 import org.kde.plasma.plasmoid
 import org.kde.plasma.components as PlasmaComponents
 import org.kde.kirigami as Kirigami
 import org.kde.plasma.plasma5support as Plasma5Support
-
+import org.kde.plasma.workspace.dbus as DBus
 
 import "../code/ApiClient.js" as Api
+import "../code/AttachmentHelpers.js" as AttachmentHelpers
 import "../code/Database.js" as Db
 import "../code/TextHelpers.js" as TextHelpers
 
@@ -29,6 +31,10 @@ Item {
     property bool isStreaming: false
     property bool historyViewActive: false
     property bool memoriesViewActive: false
+
+    // ── Pending attachments ───────────────────────────────────
+    property var pendingAttachments: []
+    property string attachmentErrorText: ""
 
     property int _originalFlags: 0
 
@@ -49,6 +55,7 @@ Item {
     property bool isRecording: false
     property string sttErrorText: ""
     property string activeSttCommand: ""
+    property string originalInputText: ""
 
     function insertTextIntoInput(text) {
         console.log("STT_QML: Inserting text: " + text);
@@ -65,7 +72,8 @@ Item {
     function toggleRecording() {
         var backend = Plasmoid.configuration.sttBackend || "disabled";
         console.log("STT_QML: toggleRecording() clicked. Backend: " + backend + ", Currently recording: " + isRecording);
-        if (backend === "disabled") return;
+        if (backend === "disabled")
+            return;
 
         if (isRecording) {
             stopRecordingSession();
@@ -80,7 +88,36 @@ Item {
         var lang = Plasmoid.configuration.sttLanguage || "en-US";
         console.log("STT_QML: Starting recording session. Backend: " + backend + ", Lang: " + lang);
 
-        if (backend === "disabled") return;
+        if (backend === "disabled")
+            return;
+
+        if (backend === "local_dbus") {
+            sttSignalWatcher.enabled = false;
+            isRecording = true;
+            originalInputText = inputArea.text;
+
+            var cli = (Plasmoid.configuration.sttWhisperCliPath || "whisper-stream").trim();
+            // Automatically redirect file CLI binary to streaming binary for live mode
+            if (cli.indexOf("whisper-cli") !== -1) {
+                cli = cli.replace("whisper-cli", "whisper-stream");
+            } else if (cli.indexOf("main") !== -1) {
+                cli = cli.replace("main", "stream");
+            }
+
+            var model = (Plasmoid.configuration.sttWhisperModelPath || "").trim();
+            var langCode = lang.split("-")[0];
+
+            var daemonPath = Qt.resolvedUrl("../code/whisper_daemon.py").toString();
+            if (daemonPath.indexOf("file://") === 0) {
+                daemonPath = daemonPath.substring(7);
+            }
+
+            activeSttCommand = "python3 " + TextHelpers.escapeShellArg(daemonPath) + " --bin " + TextHelpers.escapeShellArg(cli) + " --model " + TextHelpers.escapeShellArg(model) + " --language " + TextHelpers.escapeShellArg(langCode) + " --threads 4";
+            console.log("STT_QML: Running live whisper daemon: " + activeSttCommand);
+            executeCommandLine(activeSttCommand);
+            sttConnectTimer.start();
+            return;
+        }
 
         isRecording = true;
         activeSttCommand = "arecord -f S16_LE -r 16000 -c 1 /tmp/kde_assistant_voice.wav";
@@ -92,13 +129,24 @@ Item {
         var backend = Plasmoid.configuration.sttBackend || "disabled";
         console.log("STT_QML: Stopping recording session. Backend: " + backend);
 
-        if (backend === "disabled") return;
+        if (backend === "disabled")
+            return;
 
-        var killCallback = function(stdout, stderr, exitCode) {
+        if (backend === "local_dbus") {
+            var killDaemonCallback = function (stdout, stderr, exitCode) {
+                console.log("STT_QML: whisper_daemon killed successfully. exitCode: " + exitCode);
+                isRecording = false;
+            };
+            console.log("STT_QML: Terminating whisper_daemon process via pkill.");
+            executeCommandLine("pkill -9 -f whisper_daemon.py", killDaemonCallback);
+            return;
+        }
+
+        var killCallback = function (stdout, stderr, exitCode) {
             console.log("STT_QML: arecord killed successfully. stdout: " + stdout + ", stderr: " + stderr + ", exitCode: " + exitCode);
             isRecording = false;
             processRecordedAudio();
-        }
+        };
         console.log("STT_QML: Terminating arecord process via killall.");
         executeCommandLine("killall arecord", killCallback);
     }
@@ -123,19 +171,19 @@ Item {
         var cmd = cli + " -m " + model + " -f /tmp/kde_assistant_voice.wav -l " + lang + " -otxt";
         console.log("STT_QML: Running local whisper transcription: " + cmd);
 
-        var whisperCallback = function(stdout, stderr, exitCode) {
+        var whisperCallback = function (stdout, stderr, exitCode) {
             console.log("STT_QML: Local whisper finished. exitCode: " + exitCode);
             if (exitCode === 0) {
-                var catCallback = function(catOut, catErr, catExit) {
+                var catCallback = function (catOut, catErr, catExit) {
                     console.log("STT_QML: cat output: " + catOut);
                     insertTextIntoInput(catOut);
-                }
+                };
                 executeCommandLine("cat /tmp/kde_assistant_voice.wav.txt", catCallback);
             } else {
                 sttErrorText = "Local Whisper transcription failed. Code " + exitCode;
                 console.log("STT_QML: " + sttErrorText + ". stderr: " + stderr);
             }
-        }
+        };
         executeCommandLine(cmd, whisperCallback);
     }
 
@@ -144,14 +192,10 @@ Item {
         var apiKey = (Plasmoid.configuration.sttCloudApiKey || Plasmoid.configuration.apiKey).trim();
         var lang = (Plasmoid.configuration.sttLanguage || "en-US").trim().split("-")[0];
 
-        var curlCmd = "curl -s -X POST " + url + 
-                      " -H \"Authorization: Bearer " + apiKey + "\"" +
-                      " -F file=@/tmp/kde_assistant_voice.wav" +
-                      " -F model=whisper-1" +
-                      " -F language=" + lang;
+        var curlCmd = "curl -s -X POST " + url + " -H \"Authorization: Bearer " + apiKey + "\"" + " -F file=@/tmp/kde_assistant_voice.wav" + " -F model=whisper-1" + " -F language=" + lang;
         console.log("STT_QML: Sending transcription request to cloud...");
 
-        var cloudCallback = function(stdout, stderr, exitCode) {
+        var cloudCallback = function (stdout, stderr, exitCode) {
             console.log("STT_QML: Cloud response received. exitCode: " + exitCode);
             if (exitCode === 0) {
                 try {
@@ -159,7 +203,7 @@ Item {
                     var response = JSON.parse(stdout);
                     var text = response.text || "";
                     insertTextIntoInput(text);
-                } catch(e) {
+                } catch (e) {
                     sttErrorText = "Cloud JSON parse error: " + e.message;
                     console.log("STT_QML: Parse error: " + e.message);
                 }
@@ -167,7 +211,7 @@ Item {
                 sttErrorText = "Cloud upload failed. curl exit " + exitCode;
                 console.log("STT_QML: " + sttErrorText + ". stderr: " + stderr);
             }
-        }
+        };
         executeCommandLine(curlCmd, cloudCallback);
     }
 
@@ -176,13 +220,10 @@ Item {
         var model = (Plasmoid.configuration.sttLmsModel || "whisper-1").trim();
         var lang = (Plasmoid.configuration.sttLanguage || "en-US").trim().split("-")[0];
 
-        var curlCmd = "curl -s -X POST " + url + 
-                      " -F file=@/tmp/kde_assistant_voice.wav" +
-                      " -F model=" + TextHelpers.escapeShellArg(model) +
-                      " -F language=" + lang;
+        var curlCmd = "curl -s -X POST " + url + " -F file=@/tmp/kde_assistant_voice.wav" + " -F model=" + TextHelpers.escapeShellArg(model) + " -F language=" + lang;
         console.log("STT_QML: Sending transcription request to LM Studio: " + curlCmd);
 
-        var lmsCallback = function(stdout, stderr, exitCode) {
+        var lmsCallback = function (stdout, stderr, exitCode) {
             console.log("STT_QML: LM Studio response received. exitCode: " + exitCode);
             if (exitCode === 0) {
                 try {
@@ -190,7 +231,7 @@ Item {
                     var response = JSON.parse(stdout);
                     var text = response.text || "";
                     insertTextIntoInput(text);
-                } catch(e) {
+                } catch (e) {
                     sttErrorText = "LM Studio JSON parse error: " + e.message;
                     console.log("STT_QML: Parse error: " + e.message);
                 }
@@ -198,7 +239,7 @@ Item {
                 sttErrorText = "LM Studio upload failed. curl exit " + exitCode;
                 console.log("STT_QML: " + sttErrorText + ". stderr: " + stderr);
             }
-        }
+        };
         executeCommandLine(curlCmd, lmsCallback);
     }
 
@@ -220,6 +261,105 @@ Item {
         }
         var command = "dolphin --select " + TextHelpers.escapeShellArg(path);
         executeCommandLine(command);
+    }
+
+    // ── Attachment file reading ────────────────────────────────
+
+    function processSelectedFiles(fileUrls) {
+        if (!fileUrls || fileUrls.length === 0) return;
+
+        var filesToProcess = fileUrls.length;
+        var filesProcessed = 0;
+
+        function checkDone() {
+            filesProcessed++;
+        }
+
+        for (var i = 0; i < fileUrls.length; i++) {
+            var filePath = fileUrls[i].toString();
+            if (filePath.indexOf("file://") === 0) {
+                filePath = filePath.substring(7);
+            }
+            filePath = decodeURIComponent(filePath);
+
+            var fileName = filePath.split("/").pop();
+
+            if (AttachmentHelpers.isTextFile(fileName)) {
+                _readTextFileForAttachment(filePath, fileName, checkDone);
+            } else if (AttachmentHelpers.isImageFile(fileName) || AttachmentHelpers.isPdfFile(fileName)) {
+                _readBinaryFileForAttachment(filePath, fileName, checkDone);
+            } else {
+                _attachmentError("Unsupported file type: " + fileName);
+                checkDone();
+            }
+        }
+    }
+
+    function _readTextFileForAttachment(filePath, fileName, onComplete) {
+        var command = "cat " + TextHelpers.escapeShellArg(filePath);
+        executeCommandLine(command, function(stdout, stderr, exitCode) {
+            if (exitCode !== 0 || !stdout) {
+                _attachmentError("Failed to read: " + fileName + (stderr ? "\n" + stderr : ""));
+                if (onComplete) onComplete();
+                return;
+            }
+            if (stdout.length > AttachmentHelpers.MAX_FILE_SIZE) {
+                _attachmentError(fileName + " exceeds 5 MB limit (" + AttachmentHelpers.formatFileSize(stdout.length) + ")");
+                if (onComplete) onComplete();
+                return;
+            }
+            var attachment = AttachmentHelpers.createAttachmentObject(
+                "text", "text/plain", fileName, filePath, stdout
+            );
+            pendingAttachments.push(attachment);
+            pendingAttachmentsChanged();
+            if (onComplete) onComplete();
+        });
+    }
+
+    function _readBinaryFileForAttachment(filePath, fileName, onComplete) {
+        var sizeCommand = "wc -c < " + TextHelpers.escapeShellArg(filePath);
+        executeCommandLine(sizeCommand, function(sizeStdout, sizeStderr, sizeExit) {
+            var fileSize = parseInt((sizeStdout || "").trim(), 10);
+            if (isNaN(fileSize) || fileSize > AttachmentHelpers.MAX_FILE_SIZE) {
+                var sizeStr = isNaN(fileSize) ? "unknown" : AttachmentHelpers.formatFileSize(fileSize);
+                _attachmentError(fileName + " exceeds 5 MB limit (" + sizeStr + ")");
+                if (onComplete) onComplete();
+                return;
+            }
+            var b64Command = "base64 -w0 " + TextHelpers.escapeShellArg(filePath);
+            executeCommandLine(b64Command, function(stdout, stderr, exitCode) {
+                if (exitCode !== 0 || !stdout) {
+                    _attachmentError("Failed to encode: " + fileName + (stderr ? "\n" + stderr : ""));
+                    if (onComplete) onComplete();
+                    return;
+                }
+                var mimeType = AttachmentHelpers.getMimeType(fileName);
+                var type = AttachmentHelpers.isPdfFile(fileName) ? "pdf" : "image";
+                var attachment = AttachmentHelpers.createAttachmentObject(
+                    type, mimeType, fileName, filePath, stdout.trim()
+                );
+                pendingAttachments.push(attachment);
+                pendingAttachmentsChanged();
+                if (onComplete) onComplete();
+            });
+        });
+    }
+
+    function _attachmentError(message) {
+        console.warn("Attachment error: " + message);
+        attachmentErrorText = message;
+        attachmentErrorTimer.restart();
+    }
+
+    function _openAttachmentExternally(attachment) {
+        var tmpPath = "/tmp/kde_assistant_" + TextHelpers.generateId() + "_" + attachment.fileName;
+        var decodeCmd = "echo " + TextHelpers.escapeShellArg(attachment.data) + " | base64 -d > " + TextHelpers.escapeShellArg(tmpPath);
+        executeCommandLine(decodeCmd, function(stdout, stderr, exitCode) {
+            if (exitCode === 0) {
+                Qt.openUrlExternally("file://" + tmpPath);
+            }
+        });
     }
 
     function handleParsedCommand(cmdTag, assistantIndex) {
@@ -326,8 +466,10 @@ Item {
             chatList.positionViewAtEnd();
 
             // Persist the memory card in the DB so it survives reload
-            Db.saveMessage(db, currentSessionId, "memory",
-                JSON.stringify({ id: memId, content: cmdTag.content }));
+            Db.saveMessage(db, currentSessionId, "memory", JSON.stringify({
+                id: memId,
+                content: cmdTag.content
+            }));
             loadSessionList();
 
             // Resume so the AI can naturally acknowledge ("Got it!" etc.)
@@ -343,20 +485,7 @@ Item {
     function resumeStreaming(updatedMessages) {
         isStreaming = true;
         var assistantIndex = messageModel.count;
-        messageModel.append({
-            role: "assistant",
-            content: "",
-            isError: false,
-            approvalStatus: "",
-            approvalResult: "",
-            isCommand: false,
-            commandCode: "",
-            commandOutput: "",
-            commandStatus: "",
-            isMemory: false,
-            memoryContent: "",
-            memoryId: ""
-        });
+        messageModel.append(TextHelpers.createDefaultMessage("assistant", ""));
         chatList.positionViewAtEnd();
 
         var config = getApiConfig();
@@ -398,20 +527,20 @@ Item {
             memStrings.push(memObjs[i].content);
         }
         return {
-            apiUrl:        Plasmoid.configuration.apiUrl,
-            apiKey:        Plasmoid.configuration.apiKey,
-            modelName:     Plasmoid.configuration.modelName,
-            systemPrompt:  Plasmoid.configuration.systemPrompt,
-            temperature:   Plasmoid.configuration.temperature,
-            maxTokens:     Plasmoid.configuration.maxTokens,
+            apiUrl: Plasmoid.configuration.apiUrl,
+            apiKey: Plasmoid.configuration.apiKey,
+            modelName: Plasmoid.configuration.modelName,
+            systemPrompt: Plasmoid.configuration.systemPrompt,
+            temperature: Plasmoid.configuration.temperature,
+            maxTokens: Plasmoid.configuration.maxTokens,
             searchEnabled: Plasmoid.configuration.searchEnabled,
             searchProvider: Plasmoid.configuration.searchProvider,
-            searchApiKey:  Plasmoid.configuration.searchApiKey,
+            searchApiKey: Plasmoid.configuration.searchApiKey,
             searchExtraUrl: Plasmoid.configuration.searchExtraUrl,
-            grepProvider:  Plasmoid.configuration.grepProvider,
+            grepProvider: Plasmoid.configuration.grepProvider,
             grepMaxResults: Plasmoid.configuration.grepMaxResults,
-            userNotes:     Plasmoid.configuration.userNotes,
-            memories:      memStrings
+            userNotes: Plasmoid.configuration.userNotes,
+            memories: memStrings
         };
     }
 
@@ -471,6 +600,41 @@ Item {
         resumeStreaming(updatedMessages);
     }
 
+    DBus.SignalWatcher {
+        id: sttSignalWatcher
+        enabled: false
+        busType: DBus.BusType.Session
+        service: "org.kde.assistant.stt"
+        path: "/org/kde/assistant/stt"
+        iface: "org.kde.assistant.stt"
+
+        // Handle transcribedText(QString) signal from python daemon
+        function dbusTranscribedText(text) {
+            console.log("STT_QML: Received live DBus STT text: " + text);
+            if (isRecording) {
+                var prefix = originalInputText.trim();
+                var cleanText = text.trim();
+                if (cleanText.length > 0) {
+                    if (prefix.length > 0) {
+                        inputArea.text = prefix + " " + cleanText;
+                    } else {
+                        inputArea.text = cleanText;
+                    }
+                }
+            }
+        }
+    }
+
+    Timer {
+        id: sttConnectTimer
+        interval: 1500
+        repeat: false
+        onTriggered: {
+            console.log("STT_QML: Enabling SignalWatcher after daemon startup...");
+            sttSignalWatcher.enabled = true;
+        }
+    }
+
     Plasma5Support.DataSource {
         id: executableDataSource
         engine: "executable"
@@ -482,7 +646,7 @@ Item {
             }
 
             var exitCode = data["exit code"];
-            
+
             // Log every state change to /tmp/kde_assistant_stt.log
             var statusMsg = "STT_DEBUG: cmd=[" + sourceName + "] exitCode=" + exitCode + " stdout_len=" + (data["stdout"] || "").length + " stderr_len=" + (data["stderr"] || "").length + " stderr_preview=" + (data["stderr"] || "").substring(0, 100).replace(/\n/g, " ");
             executableDataSource.connectSource("echo " + TextHelpers.escapeShellArg(statusMsg) + " >> /tmp/kde_assistant_stt.log");
@@ -525,7 +689,14 @@ Item {
         Db.initDatabase(db);
         loadSessionList();
         loadMemoryList();
-        startNewSession();
+
+        // Load the most recent session, or create a new one if none exist
+        if (sessionModel.count > 0) {
+            var latest = sessionModel.get(0);
+            loadSession(latest.id, latest.title);
+        } else {
+            startNewSession();
+        }
 
         // Auto-focus input on completion if expanded or desktop containment
         if (Plasmoid.expanded || Plasmoid.containmentType !== Plasmoid.PanelContainment) {
@@ -637,6 +808,16 @@ Item {
                     }
                 } else {
                     markdown += content + "\n\n";
+                    // Append attachment summaries
+                    var msgAttachments = AttachmentHelpers.parseAttachmentsJson(m.attachmentsJson || "");
+                    for (var a = 0; a < msgAttachments.length; a++) {
+                        var att = msgAttachments[a];
+                        if (att.type === "text") {
+                            markdown += "**Attached: " + att.fileName + "**\n```\n" + att.data + "\n```\n\n";
+                        } else {
+                            markdown += "**Attached: " + att.fileName + "** (" + att.mimeType + ", binary data omitted)\n\n";
+                        }
+                    }
                 }
 
                 markdown += "---\n\n";
@@ -652,6 +833,8 @@ Item {
     function startNewSession() {
         stopStreamingAndSave();
         messageModel.clear();
+        pendingAttachments = [];
+        pendingAttachmentsChanged();
         currentSessionId = TextHelpers.generateId();
         currentSessionTitle = "New Chat";
         Db.createSession(db, currentSessionId, currentSessionTitle);
@@ -662,6 +845,8 @@ Item {
     function loadSession(sessionId, sessionTitle) {
         stopStreamingAndSave();
         messageModel.clear();
+        pendingAttachments = [];
+        pendingAttachmentsChanged();
         currentSessionId = sessionId;
         currentSessionTitle = sessionTitle;
         var msgs = Db.loadMessages(db, sessionId);
@@ -705,20 +890,16 @@ Item {
                 }
             }
 
-            messageModel.append({
-                role: role,
-                content: content,
-                isError: false,
-                approvalStatus: "",
-                approvalResult: "",
-                isCommand: isCommand,
-                commandCode: cmdCode,
-                commandOutput: cmdOutput,
-                commandStatus: cmdStatus,
-                isMemory: isMemoryMsg,
-                memoryContent: memContent,
-                memoryId: memId
-            });
+            var msg = TextHelpers.createDefaultMessage(role, content);
+            msg.isError = false;
+            msg.isCommand = isCommand;
+            msg.commandCode = cmdCode;
+            msg.commandOutput = cmdOutput;
+            msg.commandStatus = cmdStatus;
+            msg.isMemory = isMemoryMsg;
+            msg.memoryContent = memContent;
+            msg.memoryId = memId;
+            messageModel.append(msg);
         }
         Qt.callLater(function () {
             chatList.positionViewAtEnd();
@@ -756,10 +937,58 @@ Item {
                     // Skip memory cards from API context (they're in the system prompt already)
                     continue;
                 } else {
-                    arr.push({
-                        role: role,
-                        content: content
-                    });
+                    // Handle attachments
+                    var attachments = AttachmentHelpers.parseAttachmentsJson(m.attachmentsJson || "");
+                    var hasBinaryAttachments = false;
+
+                    for (var a = 0; a < attachments.length; a++) {
+                        if (attachments[a].type === "image" || attachments[a].type === "pdf") {
+                            hasBinaryAttachments = true;
+                            break;
+                        }
+                    }
+
+                    if (hasBinaryAttachments) {
+                        // Build multimodal content array
+                        var contentParts = [];
+                        var textContent = content || "";
+
+                        // Inline text attachments
+                        for (var a = 0; a < attachments.length; a++) {
+                            if (attachments[a].type === "text") {
+                                textContent += "\n\n---\n**File: " + attachments[a].fileName + "**\n```\n"
+                                    + attachments[a].data + "\n```";
+                            }
+                        }
+                        if (textContent.trim() !== "") {
+                            contentParts.push({ type: "text", text: textContent });
+                        }
+
+                        // Image/PDF parts
+                        for (var a = 0; a < attachments.length; a++) {
+                            var att = attachments[a];
+                            if (att.type === "image" || att.type === "pdf") {
+                                contentParts.push({
+                                    type: "image_url",
+                                    image_url: {
+                                        url: "data:" + att.mimeType + ";base64," + att.data
+                                    }
+                                });
+                            }
+                        }
+
+                        arr.push({ role: role, content: contentParts });
+                    } else {
+                        // No binary attachments: inline text attachments into content string
+                        var finalContent = content || "";
+                        for (var a = 0; a < attachments.length; a++) {
+                            if (attachments[a].type === "text") {
+                                finalContent += "\n\n---\n**File: " + attachments[a].fileName + "**\n```\n"
+                                    + attachments[a].data + "\n```";
+                            }
+                        }
+                        arr.push({ role: role, content: finalContent });
+                    }
                 }
             }
         }
@@ -768,27 +997,24 @@ Item {
 
     function sendMessage() {
         var text = inputArea.text.trim();
-        if (!text || isStreaming)
+        if ((!text && pendingAttachments.length === 0) || isStreaming)
             return;
 
         inputArea.text = "";
 
+        // Consume pending attachments
+        var attachmentsJson = "";
+        if (pendingAttachments.length > 0) {
+            attachmentsJson = AttachmentHelpers.serializeAttachments(pendingAttachments);
+            pendingAttachments = [];
+            pendingAttachmentsChanged();
+        }
+
         // Add user message
-        messageModel.append({
-            role: "user",
-            content: text,
-            isError: false,
-            approvalStatus: "",
-            approvalResult: "",
-            isCommand: false,
-            commandCode: "",
-            commandOutput: "",
-            commandStatus: "",
-            isMemory: false,
-            memoryContent: "",
-            memoryId: ""
-        });
-        Db.saveMessage(db, currentSessionId, "user", text);
+        var userMsg = TextHelpers.createDefaultMessage("user", text || "");
+        userMsg.attachmentsJson = attachmentsJson;
+        messageModel.append(userMsg);
+        Db.saveMessage(db, currentSessionId, "user", text || "");
 
         // Auto-title from first user message
         if (currentSessionTitle === "New Chat") {
@@ -800,20 +1026,7 @@ Item {
 
         // Placeholder for assistant reply
         var assistantIndex = messageModel.count;
-        messageModel.append({
-            role: "assistant",
-            content: "",
-            isError: false,
-            approvalStatus: "",
-            approvalResult: "",
-            isCommand: false,
-            commandCode: "",
-            commandOutput: "",
-            commandStatus: "",
-            isMemory: false,
-            memoryContent: "",
-            memoryId: ""
-        });
+        messageModel.append(TextHelpers.createDefaultMessage("assistant", ""));
         Qt.callLater(function () {
             chatList.positionViewAtEnd();
         });
@@ -867,117 +1080,30 @@ Item {
             spacing: 0
 
             // Header
-            Rectangle {
+            PageHeader {
+                showBackButton: false
+                title: currentSessionTitle
+                actionButtons: [
+                    { icon: "chronometer", tooltip: "Chat History", onClicked: function() { historyViewActive = true; } },
+                    { icon: "list-add", tooltip: "New Chat", onClicked: function() { startNewSession(); } },
+                    { icon: "edit-copy", tooltip: "Copy Conversation", onClicked: function() { fullRepRoot.copyConversationToClipboard(); } },
+                    { icon: "view-list-text", tooltip: "Memories (" + memoryModel.count + ")", onClicked: function() {
+                        memoriesViewActive = true;
+                        historyViewActive = false;
+                    }},
+                    { icon: "configure", tooltip: "Settings", onClicked: function() { Plasmoid.internalAction("configure").trigger(); } },
+                    { icon: root.keepOpen ? "window-unpin" : "window-pin", tooltip: root.keepOpen ? "Unpin (auto-close)" : "Pin (keep open)", onClicked: function() { root.keepOpen = !root.keepOpen; } }
+                ]
+            }
+
+            // Session model name (below header)
+            Controls.Label {
                 Layout.fillWidth: true
-                height: headerRow.implicitHeight + Kirigami.Units.smallSpacing * 2
-                color: Kirigami.Theme.alternateBackgroundColor
-
-                RowLayout {
-                    id: headerRow
-                    anchors {
-                        left: parent.left
-                        right: parent.right
-                        verticalCenter: parent.verticalCenter
-                        leftMargin: Kirigami.Units.smallSpacing
-                        rightMargin: Kirigami.Units.smallSpacing
-                    }
-                    spacing: Kirigami.Units.smallSpacing
-
-                    // History Toggle Button
-                    PlasmaComponents.ToolButton {
-                        icon.name: "chronometer"
-                        onClicked: historyViewActive = true
-                        PlasmaComponents.ToolTip {
-                            text: "Chat History"
-                        }
-                    }
-
-                    // Session title + model name
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 0
-
-                        Controls.Label {
-                            text: currentSessionTitle
-                            font.bold: true
-                            elide: Text.ElideRight
-                            Layout.fillWidth: true
-                        }
-                        Controls.Label {
-                            text: Plasmoid.configuration.modelName || "No model set"
-                            font.pointSize: Kirigami.Theme.smallFont.pointSize
-                            color: Kirigami.Theme.disabledTextColor
-                        }
-                    }
-
-                    // New chat button
-                    PlasmaComponents.ToolButton {
-                        icon.name: "list-add"
-                        onClicked: startNewSession()
-                        PlasmaComponents.ToolTip {
-                            text: "New Chat"
-                        }
-                    }
-
-                    // Copy conversation button
-                    PlasmaComponents.ToolButton {
-                        id: copyConvButton
-                        icon.name: "edit-copy"
-                        onClicked: {
-                            fullRepRoot.copyConversationToClipboard();
-                            copyTooltip.text = "Copied conversation!";
-                            copyTooltip.visible = true;
-                            resetTooltipTimer.start();
-                        }
-                        PlasmaComponents.ToolTip {
-                            id: copyTooltip
-                            text: "Copy Conversation"
-                        }
-
-                        Timer {
-                            id: resetTooltipTimer
-                            interval: 2000
-                            repeat: false
-                            onTriggered: {
-                                copyTooltip.text = "Copy Conversation";
-                                copyTooltip.visible = false;
-                            }
-                        }
-                    }
-
-                    // Memories button
-                    PlasmaComponents.ToolButton {
-                        icon.name: "view-list-text"
-                        onClicked: {
-                            memoriesViewActive = true;
-                            historyViewActive  = false;
-                        }
-                        PlasmaComponents.ToolTip {
-                            text: "Memories (" + memoryModel.count + ")"
-                        }
-                    }
-
-                    // Settings button
-                    PlasmaComponents.ToolButton {
-                        icon.name: "configure"
-                        onClicked: Plasmoid.internalAction("configure").trigger()
-                        PlasmaComponents.ToolTip {
-                            text: "Settings"
-                        }
-                    }
-
-                    // Pin / Unpin button — keeps the popup open when focus is lost
-                    PlasmaComponents.ToolButton {
-                        id: pinButton
-                        icon.name: root.keepOpen ? "window-unpin" : "window-pin"
-                        checked: root.keepOpen
-                        checkable: true
-                        onClicked: root.keepOpen = !root.keepOpen
-                        PlasmaComponents.ToolTip {
-                            text: root.keepOpen ? "Unpin (auto-close)" : "Pin (keep open)"
-                        }
-                    }
-                }
+                Layout.leftMargin: Kirigami.Units.smallSpacing * 2
+                text: Plasmoid.configuration.modelName || "No model set"
+                font.pointSize: Kirigami.Theme.smallFont.pointSize
+                color: Kirigami.Theme.disabledTextColor
+                height: visible ? implicitHeight : 0
             }
 
             Kirigami.Separator {
@@ -1030,9 +1156,10 @@ Item {
                     required property string commandCode
                     required property string commandOutput
                     required property string commandStatus
-                    required property bool   isMemory
+                    required property bool isMemory
                     required property string memoryContent
                     required property string memoryId
+                    required property string attachmentsJson
 
                     width: chatList.width - chatList.leftMargin - chatList.rightMargin - Kirigami.Units.gridUnit * 1.5
                     height: messageCard.implicitHeight
@@ -1054,12 +1181,100 @@ Item {
 
                         memoryContent: delegateRoot.memoryContent
                         memoryId: delegateRoot.memoryId
+                        attachmentsJson: delegateRoot.attachmentsJson
                     }
                 }
             }
 
             Kirigami.Separator {
                 Layout.fillWidth: true
+            }
+
+            // Attachment error display
+            Controls.Label {
+                Layout.fillWidth: true
+                Layout.leftMargin: Kirigami.Units.smallSpacing * 2
+                text: attachmentErrorText
+                font.pointSize: Kirigami.Theme.smallFont.pointSize
+                color: Kirigami.Theme.negativeTextColor
+                visible: attachmentErrorText !== ""
+                height: visible ? implicitHeight + Kirigami.Units.smallSpacing : 0
+                wrapMode: Text.WordWrap
+            }
+
+            Timer {
+                id: attachmentErrorTimer
+                interval: 5000
+                onTriggered: attachmentErrorText = ""
+            }
+
+            // Pending attachment preview strip
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.margins: Kirigami.Units.smallSpacing
+                Layout.leftMargin: Kirigami.Units.smallSpacing * 2
+                Layout.rightMargin: Kirigami.Units.smallSpacing * 2
+                spacing: Kirigami.Units.smallSpacing
+                visible: pendingAttachments.length > 0
+
+                Repeater {
+                    model: pendingAttachments.length
+
+                    Rectangle {
+                        property var attachmentData: pendingAttachments[index]
+
+                        Layout.preferredWidth: attRow.implicitWidth + Kirigami.Units.smallSpacing * 4
+                        Layout.preferredHeight: Kirigami.Units.gridUnit * 3
+                        radius: Kirigami.Units.smallSpacing
+                        color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.05)
+                        border.color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.15)
+                        border.width: 1
+
+                        RowLayout {
+                            id: attRow
+                            anchors.fill: parent
+                            anchors.margins: Kirigami.Units.smallSpacing
+                            spacing: Kirigami.Units.smallSpacing
+
+                            Kirigami.Icon {
+                                source: attachmentData.type === "image" ? "image-x-generic"
+                                      : attachmentData.type === "pdf"   ? "application-pdf"
+                                      :                                   "text-plain"
+                                Layout.preferredWidth: Kirigami.Units.iconSizes.small
+                                Layout.preferredHeight: Kirigami.Units.iconSizes.small
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 0
+
+                                Controls.Label {
+                                    text: attachmentData.fileName
+                                    elide: Text.ElideMiddle
+                                    Layout.fillWidth: true
+                                    font.pointSize: Kirigami.Theme.smallFont.pointSize
+                                }
+                                Controls.Label {
+                                    text: AttachmentHelpers.getMimeType(attachmentData.fileName)
+                                    font.pointSize: Kirigami.Theme.smallFont.pointSize - 1
+                                    color: Kirigami.Theme.disabledTextColor
+                                }
+                            }
+
+                            Controls.ToolButton {
+                                icon.name: "dialog-cancel"
+                                flat: true
+                                onClicked: {
+                                    pendingAttachments.splice(index, 1);
+                                    pendingAttachmentsChanged();
+                                }
+                                Controls.ToolTip.text: "Remove attachment"
+                                Controls.ToolTip.delay: Kirigami.Units.toolTipDelay
+                                Controls.ToolTip.visible: hovered
+                            }
+                        }
+                    }
+                }
             }
 
             // Streaming indicator
@@ -1111,17 +1326,17 @@ Item {
                     }
                 }
 
-                ColumnLayout {
+                RowLayout {
                     spacing: Kirigami.Units.smallSpacing
 
-                    // Send button
+                    // Attach file button
                     PlasmaComponents.ToolButton {
-                        id: sendButton
-                        icon.name: "go-next"
-                        enabled: !isStreaming && inputArea.text.trim().length > 0
-                        onClicked: fullRepRoot.sendMessage()
+                        id: attachButton
+                        icon.name: "mail-attachment"
+                        enabled: !isStreaming
+                        onClicked: filePickerDialog.open()
                         PlasmaComponents.ToolTip {
-                            text: "Send (Enter)"
+                            text: "Attach file"
                         }
                     }
 
@@ -1135,6 +1350,17 @@ Item {
                         onClicked: toggleRecording()
                         PlasmaComponents.ToolTip {
                             text: sttErrorText.length > 0 ? "Error: " + sttErrorText : (isRecording ? "Recording... Click to Stop & Transcribe" : "Voice Typing (Speech-to-Text)")
+                        }
+                    }
+
+                    // Send button
+                    PlasmaComponents.ToolButton {
+                        id: sendButton
+                        icon.name: "go-next"
+                        enabled: !isStreaming && (inputArea.text.trim().length > 0 || pendingAttachments.length > 0)
+                        onClicked: fullRepRoot.sendMessage()
+                        PlasmaComponents.ToolTip {
+                            text: "Send (Enter)"
                         }
                     }
 
@@ -1160,46 +1386,12 @@ Item {
             spacing: 0
 
             // Header
-            Rectangle {
-                Layout.fillWidth: true
-                height: historyHeaderRow.implicitHeight + Kirigami.Units.smallSpacing * 2
-                color: Kirigami.Theme.alternateBackgroundColor
-
-                RowLayout {
-                    id: historyHeaderRow
-                    anchors {
-                        left: parent.left
-                        right: parent.right
-                        verticalCenter: parent.verticalCenter
-                        leftMargin: Kirigami.Units.smallSpacing
-                        rightMargin: Kirigami.Units.smallSpacing
-                    }
-                    spacing: Kirigami.Units.smallSpacing
-
-                    // Back to Chat Button
-                    PlasmaComponents.ToolButton {
-                        icon.name: "go-previous"
-                        onClicked: historyViewActive = false
-                        PlasmaComponents.ToolTip {
-                            text: "Back to Chat"
-                        }
-                    }
-
-                    Kirigami.Heading {
-                        text: "History"
-                        level: 3
-                        Layout.fillWidth: true
-                    }
-
-                    // New Chat
-                    PlasmaComponents.ToolButton {
-                        icon.name: "list-add"
-                        onClicked: startNewSession()
-                        PlasmaComponents.ToolTip {
-                            text: "New Chat"
-                        }
-                    }
-                }
+            PageHeader {
+                title: "History"
+                onBackClicked: historyViewActive = false
+                actionButtons: [
+                    { icon: "list-add", tooltip: "New Chat", onClicked: function() { startNewSession(); } }
+                ]
             }
 
             Kirigami.Separator {
@@ -1297,48 +1489,20 @@ Item {
             spacing: 0
 
             // Header
-            Rectangle {
-                Layout.fillWidth: true
-                height: memoriesHeaderRow.implicitHeight + Kirigami.Units.smallSpacing * 2
-                color: Kirigami.Theme.alternateBackgroundColor
-
-                RowLayout {
-                    id: memoriesHeaderRow
-                    anchors {
-                        left: parent.left
-                        right: parent.right
-                        verticalCenter: parent.verticalCenter
-                        leftMargin: Kirigami.Units.smallSpacing
-                        rightMargin: Kirigami.Units.smallSpacing
-                    }
-                    spacing: Kirigami.Units.smallSpacing
-
-                    PlasmaComponents.ToolButton {
-                        icon.name: "go-previous"
-                        onClicked: memoriesViewActive = false
-                        PlasmaComponents.ToolTip { text: "Back to Chat" }
-                    }
-
-                    Kirigami.Heading {
-                        text: "Memories"
-                        level: 3
-                        Layout.fillWidth: true
-                    }
-
-                    // Clear all memories
-                    PlasmaComponents.ToolButton {
-                        icon.name: "edit-clear-all"
-                        enabled: memoryModel.count > 0
-                        onClicked: {
-                            Db.clearMemories(db);
-                            loadMemoryList();
-                        }
-                        PlasmaComponents.ToolTip { text: "Clear all memories" }
-                    }
-                }
+            PageHeader {
+                title: "Memories"
+                onBackClicked: memoriesViewActive = false
+                actionButtons: [
+                    { icon: "edit-clear-all", tooltip: "Clear all memories", enabled: memoryModel.count > 0, onClicked: function() {
+                        Db.clearMemories(db);
+                        loadMemoryList();
+                    }}
+                ]
             }
 
-            Kirigami.Separator { Layout.fillWidth: true }
+            Kirigami.Separator {
+                Layout.fillWidth: true
+            }
 
             // Memory list
             ListView {
@@ -1384,7 +1548,7 @@ Item {
 
                         Kirigami.Icon {
                             source: "view-list-text"
-                            Layout.preferredWidth:  Kirigami.Units.iconSizes.small
+                            Layout.preferredWidth: Kirigami.Units.iconSizes.small
                             Layout.preferredHeight: Kirigami.Units.iconSizes.small
                             color: Kirigami.Theme.positiveTextColor
                         }
@@ -1410,7 +1574,9 @@ Item {
                                 Db.deleteMemory(db, id);
                                 loadMemoryList();
                             }
-                            PlasmaComponents.ToolTip { text: "Forget this" }
+                            PlasmaComponents.ToolTip {
+                                text: "Forget this"
+                            }
                         }
                     }
                 }
@@ -1425,5 +1591,59 @@ Item {
         height: 0
         opacity: 0
         activeFocusOnPress: false
+    }
+
+    FileDialog {
+        id: filePickerDialog
+        title: "Attach Files"
+        nameFilters: [
+            "Text files (*.txt *.md *.json *.js *.ts *.jsx *.tsx *.py *.rb *.go *.rs *.c *.cpp *.h *.hpp *.java *.kt *.sh *.yaml *.yml *.toml *.xml *.html *.css *.scss *.sql *.csv *.log)",
+            "Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)",
+            "PDFs (*.pdf)",
+            "All files (*)"
+        ]
+        fileMode: FileDialog.OpenFiles
+        onAccepted: {
+            fullRepRoot.processSelectedFiles(selectedFiles);
+        }
+    }
+
+    // Drag-and-drop overlay on chat area
+    DropArea {
+        anchors.fill: chatList
+        keys: ["text/uri-list"]
+
+        onEntered: function(drag) {
+            dropOverlay.visible = true;
+        }
+        onExited: {
+            dropOverlay.visible = false;
+        }
+        onDropped: function(drop) {
+            dropOverlay.visible = false;
+            if (drop.hasUrls) {
+                processSelectedFiles(drop.urls);
+            }
+        }
+
+        Rectangle {
+            id: dropOverlay
+            visible: false
+            anchors.fill: parent
+            color: Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g,
+                            Kirigami.Theme.highlightColor.b, 0.1)
+            border.color: Kirigami.Theme.highlightColor
+            border.width: 2
+            radius: Kirigami.Units.smallSpacing
+            z: 100
+
+            Kirigami.PlaceholderMessage {
+                anchors.centerIn: parent
+                width: parent.width - Kirigami.Units.gridUnit * 4
+                icon.name: "mail-attachment"
+                text: "Drop files to attach"
+                explanation: "Text files will be read inline. Images and PDFs will be sent to the model."
+            }
+        }
     }
 }

@@ -8,6 +8,8 @@ import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 
+import "../code/ApiClient.js" as Api
+
 // Root must be ScrollView so the config dialog scrolls when content overflows
 QQC2.ScrollView {
     id: scrollRoot
@@ -90,102 +92,37 @@ QQC2.ScrollView {
     function _fetchModels() {
         _fetchStatus = "loading";
         _fetchError = "";
-        var url = _currentApiUrl.replace(/\/$/, "") + "/models";
-        var key = plasmoid.configuration.apiKey || "";
-        var xhr = new XMLHttpRequest();
-        xhr.open("GET", url, true);
-        xhr.setRequestHeader("Content-Type", "application/json");
-        if (key.trim() !== "")
-            xhr.setRequestHeader("Authorization", "Bearer " + key.trim());
-        xhr.onreadystatechange = function () {
-            if (xhr.readyState !== 4)
-                return;
-            if (xhr.status === 200) {
-                try {
-                    var body = JSON.parse(xhr.responseText);
-                    var list = [];
-                    if (body && Array.isArray(body.data)) {
-                        for (var i = 0; i < body.data.length; i++) {
-                            if (body.data[i] && body.data[i].id)
-                                list.push(body.data[i].id);
-                        }
-                    }
-                    _fetchedModels = list;
-                    // Fix #12: pass stored query, not a UI element reference
-                    _filterModels(_modelSearchQuery);
-                    _fetchStatus = "ok";
-                    var cur = modelCombo.editText;
-                    var idx = list.indexOf(cur);
-                    if (idx >= 0)
-                        modelCombo.currentIndex = idx;
-                } catch (e) {
-                    _fetchStatus = "error";
-                    _fetchError = "Failed to parse response: " + e.message;
-                }
-            } else {
-                _fetchStatus = "error";
-                var msg = "HTTP " + xhr.status;
-                if (xhr.status === 0)
-                    msg = "Connection refused — is the server running?";
-                if (xhr.status === 401)
-                    msg = "Unauthorized — check your API key";
-                if (xhr.status === 404)
-                    msg = "Not found — check the API URL";
-                try {
-                    var errBody = JSON.parse(xhr.responseText);
-                    if (errBody.error && errBody.error.message)
-                        msg = errBody.error.message;
-                } catch (e) {}
-                _fetchError = msg;
-            }
-        };
-        xhr.send();
+        Api.fetchModels({
+            apiUrl: _currentApiUrl,
+            apiKey: plasmoid.configuration.apiKey || ""
+        }, function (list) {
+            _fetchedModels = list;
+            _filterModels(_modelSearchQuery);
+            _fetchStatus = "ok";
+            var cur = modelCombo.editText;
+            var idx = list.indexOf(cur);
+            if (idx >= 0)
+                modelCombo.currentIndex = idx;
+        }, function (errMsg) {
+            _fetchStatus = "error";
+            _fetchError = errMsg;
+        });
     }
 
     // ── Helper: test connectivity to the configured endpoint ───
-    // Fix #9: new function — mirrors ApiClient.testConnection() but inline
     function _testConnection() {
         _testStatus = "testing";
         _testError = "";
-        var url = _currentApiUrl.replace(/\/$/, "") + "/chat/completions";
-        var key = plasmoid.configuration.apiKey || "";
-        var model = plasmoid.configuration.modelName || "llama3";
-        var xhr = new XMLHttpRequest();
-        xhr.open("POST", url, true);
-        xhr.setRequestHeader("Content-Type", "application/json");
-        if (key.trim() !== "")
-            xhr.setRequestHeader("Authorization", "Bearer " + key.trim());
-        xhr.onreadystatechange = function () {
-            if (xhr.readyState !== 4)
-                return;
-            if (xhr.status === 200) {
-                _testStatus = "ok";
-            } else {
-                _testStatus = "error";
-                var msg = "HTTP " + xhr.status;
-                if (xhr.status === 0)
-                    msg = "Connection refused — is the server running?";
-                if (xhr.status === 401)
-                    msg = "Unauthorized — check your API key";
-                try {
-                    var body = JSON.parse(xhr.responseText);
-                    if (body.error && body.error.message)
-                        msg = body.error.message;
-                } catch (e) {}
-                _testError = msg;
-            }
-        };
-        xhr.send(JSON.stringify({
-            model: model,
-            messages: [
-                {
-                    role: "user",
-                    content: "hi"
-                }
-            ],
-            max_tokens: 1,
-            stream: false
-        }));
+        Api.testConnection({
+            apiUrl: _currentApiUrl,
+            apiKey: plasmoid.configuration.apiKey || "",
+            modelName: plasmoid.configuration.modelName || "llama3"
+        }, function () {
+            _testStatus = "ok";
+        }, function (errMsg) {
+            _testStatus = "error";
+            _testError = errMsg;
+        });
     }
 
     QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AlwaysOff
@@ -593,19 +530,35 @@ QQC2.ScrollView {
             id: sttBackendCombo
             Kirigami.FormData.label: i18n("STT Backend:")
             model: [
-                { text: i18n("Whisper API (Cloud)"), value: "cloud" },
-                { text: i18n("LM Studio Local Server"), value: "lms" },
-                { text: i18n("Local whisper.cpp (Offline CLI)"), value: "local" },
-                { text: i18n("Disabled"), value: "disabled" }
+                {
+                    text: i18n("Whisper API (Cloud)"),
+                    value: "cloud"
+                },
+                {
+                    text: i18n("LM Studio Local Server"),
+                    value: "lms"
+                },
+                {
+                    text: i18n("Local whisper.cpp (Offline CLI)"),
+                    value: "local"
+                },
+                {
+                    text: i18n("Local whisper.cpp (Live DBus Stream)"),
+                    value: "local_dbus"
+                },
+                {
+                    text: i18n("Disabled"),
+                    value: "disabled"
+                }
             ]
             textRole: "text"
             currentIndex: {
                 var val = scrollRoot.cfg_sttBackend;
-                var idx = ["cloud", "lms", "local", "disabled"].indexOf(val);
-                return idx >= 0 ? idx : 3; // Default to Disabled (index 3)
+                var idx = ["cloud", "lms", "local", "local_dbus", "disabled"].indexOf(val);
+                return idx >= 0 ? idx : 4; // Default to Disabled (index 4)
             }
             onActivated: {
-                scrollRoot.cfg_sttBackend = ["cloud", "lms", "local", "disabled"][currentIndex];
+                scrollRoot.cfg_sttBackend = ["cloud", "lms", "local", "local_dbus", "disabled"][currentIndex];
             }
         }
 
@@ -613,8 +566,14 @@ QQC2.ScrollView {
             id: sttLanguageCombo
             Kirigami.FormData.label: i18n("Preferred Language:")
             model: [
-                { text: i18n("English (US)"), value: "en-US" },
-                { text: i18n("Arabic"), value: "ar-SA" }
+                {
+                    text: i18n("English (US)"),
+                    value: "en-US"
+                },
+                {
+                    text: i18n("Arabic"),
+                    value: "ar-SA"
+                }
             ]
             textRole: "text"
             currentIndex: {
@@ -676,10 +635,10 @@ QQC2.ScrollView {
                     var match = baseUrl.match(/^https?:\/\/[^\/]+/);
                     var origin = match ? match[0] : baseUrl;
                     var modelsUrl = origin + "/v1/models";
-                    
+
                     var xhr = new XMLHttpRequest();
                     xhr.open("GET", modelsUrl, true);
-                    xhr.onreadystatechange = function() {
+                    xhr.onreadystatechange = function () {
                         if (xhr.readyState === XMLHttpRequest.DONE) {
                             if (xhr.status === 200) {
                                 try {
@@ -729,17 +688,17 @@ QQC2.ScrollView {
             text: ""
         }
 
-        // Local STT settings (visible if backend == 'local')
+        // Local STT settings (visible if backend == 'local' or 'local_dbus')
         QQC2.TextField {
             id: sttWhisperCli
             Kirigami.FormData.label: i18n("whisper.cpp Path:")
-            visible: sttBackendCombo.currentIndex === 2
+            visible: sttBackendCombo.currentIndex === 2 || sttBackendCombo.currentIndex === 3
         }
 
         QQC2.TextField {
             id: sttWhisperModel
             Kirigami.FormData.label: i18n("Model Path (.bin):")
-            visible: sttBackendCombo.currentIndex === 2
+            visible: sttBackendCombo.currentIndex === 2 || sttBackendCombo.currentIndex === 3
         }
     }
 }

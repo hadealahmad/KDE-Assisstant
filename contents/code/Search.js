@@ -4,6 +4,7 @@
  */
 
 .pragma library
+.import "TextHelpers.js" as TextHelpers
 
 function unescapeHtml(text) {
     if (!text) return "";
@@ -266,22 +267,17 @@ function stripHtml(html) {
         .trim();
 }
 
-function escapeShellArg(arg) {
-    if (!arg) return "''";
-    return "'" + arg.replace(/'/g, "'\\''") + "'";
-}
-
 function buildGrepCommand(pattern, path, limit) {
     var maxCount = typeof limit === "number" ? limit : 20;
-    var escapedPattern = escapeShellArg(pattern);
-    var escapedPath = escapeShellArg(path || ".");
+    var escapedPattern = TextHelpers.escapeShellArg(pattern);
+    var escapedPath = TextHelpers.escapeShellArg(path || ".");
     return "grep -rnIE --max-count=" + maxCount + " " + escapedPattern + " " + escapedPath + " 2>/dev/null";
 }
 
 function buildRipgrepCommand(pattern, path, limit) {
     var maxCount = typeof limit === "number" ? limit : 20;
-    var escapedPattern = escapeShellArg(pattern);
-    var escapedPath = escapeShellArg(path || ".");
+    var escapedPattern = TextHelpers.escapeShellArg(pattern);
+    var escapedPath = TextHelpers.escapeShellArg(path || ".");
     return "rg --vimgrep --max-count=" + maxCount + " " + escapedPattern + " " + escapedPath + " 2>/dev/null";
 }
 

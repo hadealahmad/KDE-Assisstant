@@ -27,12 +27,47 @@ Kirigami.AbstractCard {
     property string commandStatus: ""
     property bool cmdExpanded: false
 
-    readonly property bool isUser:     role === "user"
+    readonly property bool isUser: role === "user"
     readonly property bool isApproval: role === "setting_approval"
-    readonly property bool isMemory:   role === "memory"
+    readonly property bool isMemory: role === "memory"
 
     property string memoryContent: ""
     property string memoryId: ""
+
+    property string attachmentsJson: ""
+
+    readonly property var parsedAttachments: {
+        if (!attachmentsJson || attachmentsJson === "") return [];
+        try {
+            return JSON.parse(attachmentsJson);
+        } catch (e) {
+            return [];
+        }
+    }
+
+    readonly property var imageAttachments: {
+        var result = [];
+        for (var i = 0; i < parsedAttachments.length; i++) {
+            if (parsedAttachments[i].type === "image" || parsedAttachments[i].type === "pdf") {
+                result.push(parsedAttachments[i]);
+            }
+        }
+        return result;
+    }
+
+    readonly property bool hasImageAttachments: imageAttachments.length > 0
+
+    readonly property var textAttachments: {
+        var result = [];
+        for (var i = 0; i < parsedAttachments.length; i++) {
+            if (parsedAttachments[i].type === "text") {
+                result.push(parsedAttachments[i]);
+            }
+        }
+        return result;
+    }
+
+    readonly property bool hasTextAttachments: textAttachments.length > 0
 
     property bool thinkingExpanded: false
 
@@ -54,13 +89,15 @@ Kirigami.AbstractCard {
     }
 
     readonly property string cleanMessageText: {
-        if (!hasThinking)
-            return messageText;
-        if (endIndex !== -1) {
-            return (messageText.substring(0, startIndex) + messageText.substring(endIndex + endTag.length)).trim();
-        } else {
-            return messageText.substring(0, startIndex).trim();
+        var baseText = messageText;
+        if (hasThinking) {
+            if (endIndex !== -1) {
+                baseText = (messageText.substring(0, startIndex) + messageText.substring(endIndex + endTag.length)).trim();
+            } else {
+                baseText = messageText.substring(0, startIndex).trim();
+            }
         }
+        return baseText;
     }
 
     // Parse settings approvals parameters
@@ -143,93 +180,25 @@ Kirigami.AbstractCard {
         }
 
         // Collapsible Thinking Block
-        ColumnLayout {
+        CollapsibleBlock {
             id: thinkingContainer
             Layout.fillWidth: true
             Layout.leftMargin: Kirigami.Units.gridUnit * 2
             Layout.rightMargin: Kirigami.Units.smallSpacing
             visible: !root.isApproval && root.hasThinking && root.thinkingText !== ""
-            spacing: 0
+            title: "Thinking Process"
+            expanded: root.thinkingExpanded
+            onExpandedChanged: root.thinkingExpanded = expanded
 
-            // Toggle button/row
-            Rectangle {
-                Layout.fillWidth: true
-                implicitHeight: Kirigami.Units.gridUnit * 1.5
-                color: "transparent"
-
-                RowLayout {
-                    anchors.fill: parent
-                    spacing: Kirigami.Units.smallSpacing
-
-                    Kirigami.Icon {
-                        source: "go-next"
-                        Layout.preferredWidth: Kirigami.Units.gridUnit * 0.8
-                        Layout.preferredHeight: Kirigami.Units.gridUnit * 0.8
-                        rotation: root.thinkingExpanded ? 90 : 0
-                        Behavior on rotation {
-                            NumberAnimation {
-                                duration: 150
-                                easing.type: Easing.InOutQuad
-                            }
-                        }
-                    }
-
-                    Controls.Label {
-                        text: "Thinking Process"
-                        font.bold: true
-                        font.pointSize: Kirigami.Theme.smallFont.pointSize
-                        color: Kirigami.Theme.disabledTextColor
-                    }
-
-                    Item {
-                        Layout.fillWidth: true
-                    }
-                }
-
-                MouseArea {
-                    anchors.fill: parent
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: {
-                        root.thinkingExpanded = !root.thinkingExpanded;
-                    }
-                }
-            }
-
-            // Expanded thinking content panel
-            Rectangle {
-                id: thinkingContentPanel
-                Layout.fillWidth: true
-                Layout.topMargin: root.thinkingExpanded ? Kirigami.Units.smallSpacing : 0
-                clip: true
-                color: root.thinkingExpanded ? Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.03) : "transparent"
-                radius: Kirigami.Units.smallSpacing
-                border.color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.08)
-                border.width: root.thinkingExpanded ? 1 : 0
-
-                Layout.preferredHeight: root.thinkingExpanded ? (thinkingTextEdit.implicitHeight + Kirigami.Units.smallSpacing * 2) : 0
-
-                Behavior on Layout.preferredHeight {
-                    NumberAnimation {
-                        duration: 200
-                        easing.type: Easing.InOutQuad
-                    }
-                }
-
-                TextEdit {
-                    id: thinkingTextEdit
-                    anchors {
-                        fill: parent
-                        margins: Kirigami.Units.smallSpacing
-                    }
-                    readOnly: true
-                    wrapMode: TextEdit.WordWrap
-                    selectByMouse: true
-                    activeFocusOnPress: true
-                    textFormat: TextEdit.PlainText
-                    text: root.thinkingText
-                    color: Kirigami.Theme.disabledTextColor
-                    font: Kirigami.Theme.smallFont
-                }
+            contentItem: TextEdit {
+                readOnly: true
+                wrapMode: TextEdit.WordWrap
+                selectByMouse: true
+                activeFocusOnPress: true
+                textFormat: TextEdit.PlainText
+                text: root.thinkingText
+                color: Kirigami.Theme.disabledTextColor
+                font: Kirigami.Theme.smallFont
             }
         }
 
@@ -329,90 +298,22 @@ Kirigami.AbstractCard {
             }
 
             // Collapsible Output Block
-            ColumnLayout {
+            CollapsibleBlock {
                 Layout.fillWidth: true
                 visible: root.approvalStatus === "done" || root.approvalStatus === "failed"
-                spacing: 0
+                title: "Execution Output"
+                expanded: root.resultExpanded
+                onExpandedChanged: root.resultExpanded = expanded
 
-                // Toggle button/row
-                Rectangle {
-                    Layout.fillWidth: true
-                    implicitHeight: Kirigami.Units.gridUnit * 1.5
-                    color: "transparent"
-
-                    RowLayout {
-                        anchors.fill: parent
-                        spacing: Kirigami.Units.smallSpacing
-
-                        Kirigami.Icon {
-                            source: "go-next"
-                            Layout.preferredWidth: Kirigami.Units.gridUnit * 0.8
-                            Layout.preferredHeight: Kirigami.Units.gridUnit * 0.8
-                            rotation: root.resultExpanded ? 90 : 0
-                            Behavior on rotation {
-                                NumberAnimation {
-                                    duration: 150
-                                    easing.type: Easing.InOutQuad
-                                }
-                            }
-                        }
-
-                        Controls.Label {
-                            text: "Execution Output"
-                            font.bold: true
-                            font.pointSize: Kirigami.Theme.smallFont.pointSize
-                            color: Kirigami.Theme.disabledTextColor
-                        }
-
-                        Item {
-                            Layout.fillWidth: true
-                        }
-                    }
-
-                    MouseArea {
-                        anchors.fill: parent
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: {
-                            root.resultExpanded = !root.resultExpanded;
-                        }
-                    }
-                }
-
-                // Expanded output content panel
-                Rectangle {
-                    id: resultContentPanel
-                    Layout.fillWidth: true
-                    Layout.topMargin: root.resultExpanded ? Kirigami.Units.smallSpacing : 0
-                    clip: true
-                    color: root.resultExpanded ? Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.03) : "transparent"
-                    radius: Kirigami.Units.smallSpacing
-                    border.color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.08)
-                    border.width: root.resultExpanded ? 1 : 0
-
-                    Layout.preferredHeight: root.resultExpanded ? (resultTextEdit.implicitHeight + Kirigami.Units.smallSpacing * 2) : 0
-
-                    Behavior on Layout.preferredHeight {
-                        NumberAnimation {
-                            duration: 200
-                            easing.type: Easing.InOutQuad
-                        }
-                    }
-
-                    TextEdit {
-                        id: resultTextEdit
-                        anchors {
-                            fill: parent
-                            margins: Kirigami.Units.smallSpacing
-                        }
-                        readOnly: true
-                        wrapMode: TextEdit.WordWrap
-                        selectByMouse: true
-                        activeFocusOnPress: true
-                        textFormat: TextEdit.PlainText
-                        text: root.approvalResult || ""
-                        color: Kirigami.Theme.textColor
-                        font: Kirigami.Theme.smallFont
-                    }
+                contentItem: TextEdit {
+                    readOnly: true
+                    wrapMode: TextEdit.WordWrap
+                    selectByMouse: true
+                    activeFocusOnPress: true
+                    textFormat: TextEdit.PlainText
+                    text: root.approvalResult || ""
+                    color: Kirigami.Theme.textColor
+                    font: Kirigami.Theme.smallFont
                 }
             }
         }
@@ -452,6 +353,118 @@ Kirigami.AbstractCard {
             }
         }
 
+        // Text attachment display
+        Repeater {
+            model: root.textAttachments
+
+            CollapsibleBlock {
+                required property var modelData
+                required property int index
+                Layout.fillWidth: true
+                Layout.leftMargin: Kirigami.Units.gridUnit * 2
+                Layout.rightMargin: Kirigami.Units.smallSpacing
+                title: modelData.fileName
+                expanded: false
+
+                contentItem: TextEdit {
+                    readOnly: true
+                    wrapMode: TextEdit.WordWrap
+                    selectByMouse: true
+                    activeFocusOnPress: true
+                    textFormat: TextEdit.PlainText
+                    text: modelData.data
+                    color: Kirigami.Theme.textColor
+                    font.family: "monospace"
+                    font.pointSize: Kirigami.Theme.smallFont.pointSize
+                }
+            }
+        }
+
+        // Image/PDF attachment display
+        Repeater {
+            model: root.imageAttachments
+
+            ColumnLayout {
+                required property var modelData
+                Layout.fillWidth: true
+                Layout.leftMargin: Kirigami.Units.gridUnit * 2
+                Layout.rightMargin: Kirigami.Units.smallSpacing
+                spacing: Kirigami.Units.smallSpacing / 2
+
+                // File name label
+                Controls.Label {
+                    text: modelData.fileName
+                    font.pointSize: Kirigami.Theme.smallFont.pointSize
+                    color: Kirigami.Theme.disabledTextColor
+                }
+
+                // Image display
+                Image {
+                    id: attachmentImage
+                    Layout.fillWidth: true
+                    Layout.maximumWidth: Kirigami.Units.gridUnit * 20
+                    Layout.preferredHeight: sourceSize.height > 0
+                        ? Math.min(sourceSize.height, Kirigami.Units.gridUnit * 20)
+                        : Kirigami.Units.gridUnit * 10
+                    Layout.alignment: Qt.AlignLeft
+
+                    source: {
+                        if (modelData.type === "image") {
+                            return "data:" + modelData.mimeType + ";base64," + modelData.data;
+                        }
+                        return "";
+                    }
+
+                    visible: modelData.type === "image"
+                    fillMode: Image.PreserveAspectFit
+                    asynchronous: true
+                    cache: false
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: fullRepRoot._openAttachmentExternally(modelData)
+                    }
+
+                    Controls.BusyIndicator {
+                        anchors.centerIn: parent
+                        running: attachmentImage.status === Image.Loading
+                        visible: running
+                    }
+                }
+
+                // PDF indicator
+                Rectangle {
+                    visible: modelData.type === "pdf"
+                    Layout.fillWidth: true
+                    implicitHeight: pdfLabel.implicitHeight + Kirigami.Units.smallSpacing * 4
+                    color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.05)
+                    radius: Kirigami.Units.smallSpacing
+                    border.color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.1)
+                    border.width: 1
+
+                    RowLayout {
+                        id: pdfLabel
+                        anchors.fill: parent
+                        anchors.margins: Kirigami.Units.smallSpacing * 2
+                        spacing: Kirigami.Units.smallSpacing
+
+                        Kirigami.Icon {
+                            source: "application-pdf"
+                            Layout.preferredWidth: Kirigami.Units.iconSizes.medium
+                            Layout.preferredHeight: Kirigami.Units.iconSizes.medium
+                        }
+
+                        Controls.Label {
+                            text: modelData.fileName + " (PDF attached)"
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+                }
+            }
+        }
+
         // Memory card content
         RowLayout {
             visible: root.isMemory
@@ -479,94 +492,26 @@ Kirigami.AbstractCard {
         }
 
         // Collapsible Command Output Block
-        ColumnLayout {
+        CollapsibleBlock {
             id: commandOutputContainer
             Layout.fillWidth: true
             Layout.leftMargin: Kirigami.Units.gridUnit * 2
             Layout.rightMargin: Kirigami.Units.smallSpacing
             visible: root.isCommand && root.commandOutput !== ""
-            spacing: 0
+            title: "Command Output"
+            expanded: root.cmdExpanded
+            onExpandedChanged: root.cmdExpanded = expanded
 
-            // Toggle button/row
-            Rectangle {
-                Layout.fillWidth: true
-                implicitHeight: Kirigami.Units.gridUnit * 1.5
-                color: "transparent"
-
-                RowLayout {
-                    anchors.fill: parent
-                    spacing: Kirigami.Units.smallSpacing
-
-                    Kirigami.Icon {
-                        source: "go-next"
-                        Layout.preferredWidth: Kirigami.Units.gridUnit * 0.8
-                        Layout.preferredHeight: Kirigami.Units.gridUnit * 0.8
-                        rotation: root.cmdExpanded ? 90 : 0
-                        Behavior on rotation {
-                            NumberAnimation {
-                                duration: 150
-                                easing.type: Easing.InOutQuad
-                            }
-                        }
-                    }
-
-                    Controls.Label {
-                        text: "Command Output"
-                        font.bold: true
-                        font.pointSize: Kirigami.Theme.smallFont.pointSize
-                        color: Kirigami.Theme.disabledTextColor
-                    }
-
-                    Item {
-                        Layout.fillWidth: true
-                    }
-                }
-
-                MouseArea {
-                    anchors.fill: parent
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: {
-                        root.cmdExpanded = !root.cmdExpanded;
-                    }
-                }
-            }
-
-            // Expanded command output panel
-            Rectangle {
-                id: commandOutputPanel
-                Layout.fillWidth: true
-                Layout.topMargin: root.cmdExpanded ? Kirigami.Units.smallSpacing : 0
-                clip: true
-                color: root.cmdExpanded ? Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.03) : "transparent"
-                radius: Kirigami.Units.smallSpacing
-                border.color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.08)
-                border.width: root.cmdExpanded ? 1 : 0
-
-                Layout.preferredHeight: root.cmdExpanded ? (cmdOutputTextEdit.implicitHeight + Kirigami.Units.smallSpacing * 2) : 0
-
-                Behavior on Layout.preferredHeight {
-                    NumberAnimation {
-                        duration: 200
-                        easing.type: Easing.InOutQuad
-                    }
-                }
-
-                TextEdit {
-                    id: cmdOutputTextEdit
-                    anchors {
-                        fill: parent
-                        margins: Kirigami.Units.smallSpacing
-                    }
-                    readOnly: true
-                    wrapMode: TextEdit.WordWrap
-                    selectByMouse: true
-                    activeFocusOnPress: true
-                    textFormat: TextEdit.PlainText
-                    text: root.commandOutput
-                    color: Kirigami.Theme.textColor
-                    font.family: "monospace"
-                    font.pointSize: Kirigami.Theme.smallFont.pointSize
-                }
+            contentItem: TextEdit {
+                readOnly: true
+                wrapMode: TextEdit.WordWrap
+                selectByMouse: true
+                activeFocusOnPress: true
+                textFormat: TextEdit.PlainText
+                text: root.commandOutput
+                color: Kirigami.Theme.textColor
+                font.family: "monospace"
+                font.pointSize: Kirigami.Theme.smallFont.pointSize
             }
         }
     }

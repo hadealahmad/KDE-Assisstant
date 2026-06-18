@@ -55,3 +55,21 @@ function escapeShellArg(arg) {
     if (!arg) return "''";
     return "'" + arg.replace(/'/g, "'\\''") + "'";
 }
+
+function createDefaultMessage(role, content) {
+    return {
+        role: role || "assistant",
+        content: content || "",
+        isError: false,
+        attachmentsJson: "",
+        approvalStatus: "",
+        approvalResult: "",
+        isCommand: false,
+        commandCode: "",
+        commandOutput: "",
+        commandStatus: "",
+        isMemory: false,
+        memoryContent: "",
+        memoryId: ""
+    };
+}

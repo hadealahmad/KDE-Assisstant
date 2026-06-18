@@ -27,6 +27,79 @@ function abortActiveRequest() {
 }
 
 // ──────────────────────────────────────────────
+// Message array helpers
+// ──────────────────────────────────────────────
+
+function cloneMessages(messages) {
+    var copy = [];
+    for (var i = 0; i < messages.length; i++) {
+        var content = messages[i].content;
+        if (Array.isArray(content)) {
+            content = JSON.parse(JSON.stringify(content));
+        }
+        copy.push({ role: messages[i].role, content: content });
+    }
+    return copy;
+}
+
+function findLastUserIndex(messages) {
+    for (var k = messages.length - 1; k >= 0; k--) {
+        if (messages[k].role === "user") {
+            return k;
+        }
+    }
+    return -1;
+}
+
+function appendToLastUserMessage(messages, suffix) {
+    var updated = cloneMessages(messages);
+    var idx = findLastUserIndex(updated);
+    if (idx !== -1) {
+        if (Array.isArray(updated[idx].content)) {
+            var foundTextPart = false;
+            for (var p = updated[idx].content.length - 1; p >= 0; p--) {
+                if (updated[idx].content[p].type === "text") {
+                    updated[idx].content[p].text += suffix;
+                    foundTextPart = true;
+                    break;
+                }
+            }
+            if (!foundTextPart) {
+                updated[idx].content.unshift({ type: "text", text: suffix });
+            }
+        } else {
+            updated[idx].content += suffix;
+        }
+    } else {
+        updated.push({ role: "system", content: suffix });
+    }
+    return updated;
+}
+
+// ──────────────────────────────────────────────
+// Shared HTTP helpers
+// ──────────────────────────────────────────────
+
+function applyAuthHeaders(xhr, apiKey) {
+    xhr.setRequestHeader("Content-Type", "application/json");
+    if (apiKey && apiKey.trim() !== "") {
+        xhr.setRequestHeader("Authorization", "Bearer " + apiKey.trim());
+    }
+}
+
+function parseHttpError(xhr) {
+    var msg = "HTTP " + xhr.status;
+    if (xhr.status === 0) msg = "Connection refused — is the server running?";
+    else if (xhr.status === 401) msg = "Unauthorized — check your API key";
+    else if (xhr.status === 404) msg = "Not found — check the API URL";
+    try {
+        var body = JSON.parse(xhr.responseText);
+        if (body.error && body.error.message) msg = body.error.message;
+    } catch (e) { }
+    return msg;
+}
+
+// ──────────────────────────────────────────────
 // Main send function
 // config = { apiUrl, apiKey, modelName, systemPrompt, temperature, maxTokens, searchEnabled, searchProvider, searchApiKey, searchExtraUrl }
 // messages = [{ role, content }, ...]
@@ -215,30 +288,10 @@ function sendMessage(messages, config, onStreaming, onComplete, onError) {
                                             }
 
                                             Search.executeSearch(query, config, function (resultsText) {
-                                                var updatedMessages = [];
-                                                for (var j = 0; j < messages.length; j++) {
-                                                    updatedMessages.push({
-                                                        role: messages[j].role,
-                                                        content: messages[j].content
-                                                    });
-                                                }
-
-                                                var lastUserIndex = -1;
-                                                for (var k = updatedMessages.length - 1; k >= 0; k--) {
-                                                    if (updatedMessages[k].role === "user") {
-                                                        lastUserIndex = k;
-                                                        break;
-                                                    }
-                                                }
-                                                if (lastUserIndex !== -1) {
-                                                    updatedMessages[lastUserIndex].content += "\n\n[Web Search Results for \"" + query + "\"]\n" + resultsText;
-                                                } else {
-                                                    updatedMessages.push({
-                                                        role: "system",
-                                                        content: "Web Search Results for \"" + query + "\":\n\n" + resultsText
-                                                    });
-                                                }
-
+                                                var updatedMessages = appendToLastUserMessage(
+                                                    messages,
+                                                    "\n\n[Web Search Results for \"" + query + "\"]\n" + resultsText
+                                                );
                                                 sendMessage(updatedMessages, recursiveConfig, onStreaming, onComplete, onError);
                                             }, function (searchError) {
                                                 if (typeof onStreaming === "function") {
@@ -247,25 +300,10 @@ function sendMessage(messages, config, onStreaming, onComplete, onError) {
                                                     onStreaming(failureStatusText);
                                                 }
 
-                                                var updatedMessages = [];
-                                                for (var j = 0; j < messages.length; j++) {
-                                                    updatedMessages.push({
-                                                        role: messages[j].role,
-                                                        content: messages[j].content
-                                                    });
-                                                }
-
-                                                var lastUserIndex = -1;
-                                                for (var k = updatedMessages.length - 1; k >= 0; k--) {
-                                                    if (updatedMessages[k].role === "user") {
-                                                        lastUserIndex = k;
-                                                        break;
-                                                    }
-                                                }
-                                                if (lastUserIndex !== -1) {
-                                                    updatedMessages[lastUserIndex].content += "\n\n[Web Search Failed: " + searchError + "]";
-                                                }
-
+                                                var updatedMessages = appendToLastUserMessage(
+                                                    messages,
+                                                    "\n\n[Web Search Failed: " + searchError + "]"
+                                                );
                                                 setTimeout(function () {
                                                     sendMessage(updatedMessages, recursiveConfig, onStreaming, onComplete, onError);
                                                 }, 1500);
@@ -295,30 +333,10 @@ function sendMessage(messages, config, onStreaming, onComplete, onError) {
                                             }
 
                                             Search.fetchWebpage(url, function (webpageText) {
-                                                var updatedMessages = [];
-                                                for (var j = 0; j < messages.length; j++) {
-                                                    updatedMessages.push({
-                                                        role: messages[j].role,
-                                                        content: messages[j].content
-                                                    });
-                                                }
-
-                                                var lastUserIndex = -1;
-                                                for (var k = updatedMessages.length - 1; k >= 0; k--) {
-                                                    if (updatedMessages[k].role === "user") {
-                                                        lastUserIndex = k;
-                                                        break;
-                                                    }
-                                                }
-                                                if (lastUserIndex !== -1) {
-                                                    updatedMessages[lastUserIndex].content += "\n\n[Webpage Content for \"" + url + "\"]\n" + webpageText;
-                                                } else {
-                                                    updatedMessages.push({
-                                                        role: "system",
-                                                        content: "Webpage Content for \"" + url + "\":\n\n" + webpageText
-                                                    });
-                                                }
-
+                                                var updatedMessages = appendToLastUserMessage(
+                                                    messages,
+                                                    "\n\n[Webpage Content for \"" + url + "\"]\n" + webpageText
+                                                );
                                                 sendMessage(updatedMessages, recursiveConfig, onStreaming, onComplete, onError);
                                             }, function (fetchError) {
                                                 if (typeof onStreaming === "function") {
@@ -327,25 +345,10 @@ function sendMessage(messages, config, onStreaming, onComplete, onError) {
                                                     onStreaming(failureStatusTextFetch);
                                                 }
 
-                                                var updatedMessages = [];
-                                                for (var j = 0; j < messages.length; j++) {
-                                                    updatedMessages.push({
-                                                        role: messages[j].role,
-                                                        content: messages[j].content
-                                                    });
-                                                }
-
-                                                var lastUserIndex = -1;
-                                                for (var k = updatedMessages.length - 1; k >= 0; k--) {
-                                                    if (updatedMessages[k].role === "user") {
-                                                        lastUserIndex = k;
-                                                        break;
-                                                    }
-                                                }
-                                                if (lastUserIndex !== -1) {
-                                                    updatedMessages[lastUserIndex].content += "\n\n[Webpage Fetch Failed: " + fetchError + "]";
-                                                }
-
+                                                var updatedMessages = appendToLastUserMessage(
+                                                    messages,
+                                                    "\n\n[Webpage Fetch Failed: " + fetchError + "]"
+                                                );
                                                 setTimeout(function () {
                                                     sendMessage(updatedMessages, recursiveConfig, onStreaming, onComplete, onError);
                                                 }, 1500);
@@ -391,23 +394,10 @@ function sendMessage(messages, config, onStreaming, onComplete, onError) {
                 }
 
                 Search.executeSearch(fallbackQuery, config, function (resultsText) {
-                    var updatedMessages = [];
-                    for (var j = 0; j < messages.length; j++) {
-                        updatedMessages.push({
-                            role: messages[j].role,
-                            content: messages[j].content
-                        });
-                    }
-                    var lastUserIndex = -1;
-                    for (var k = updatedMessages.length - 1; k >= 0; k--) {
-                        if (updatedMessages[k].role === "user") {
-                            lastUserIndex = k;
-                            break;
-                        }
-                    }
-                    if (lastUserIndex !== -1) {
-                        updatedMessages[lastUserIndex].content += "\n\n[Web Search Results for \"" + fallbackQuery + "\"]\n" + resultsText;
-                    }
+                    var updatedMessages = appendToLastUserMessage(
+                        messages,
+                        "\n\n[Web Search Results for \"" + fallbackQuery + "\"]\n" + resultsText
+                    );
                     sendMessage(updatedMessages, recursiveConfig, onStreaming, onComplete, onError);
                 }, function (searchError) {
                     if (typeof onStreaming === "function") {
@@ -415,24 +405,10 @@ function sendMessage(messages, config, onStreaming, onComplete, onError) {
                         var failureStatusText = TextHelpers.formatThinking(accumulatedReasoning) + searchFailureStatus;
                         onStreaming(failureStatusText);
                     }
-                    var updatedMessages = [];
-                    for (var j = 0; j < messages.length; j++) {
-                        updatedMessages.push({
-                            role: messages[j].role,
-                            content: messages[j].content
-                        });
-                    }
-                    var lastUserIndex = -1;
-                    for (var k = updatedMessages.length - 1; k >= 0; k--) {
-                        if (updatedMessages[k].role === "user") {
-                            lastUserIndex = k;
-                            break;
-                        }
-                    }
-                    if (lastUserIndex !== -1) {
-                        updatedMessages[lastUserIndex].content += "\n\n[Web Search Failed: " + searchError + "]";
-                    }
-
+                    var updatedMessages = appendToLastUserMessage(
+                        messages,
+                        "\n\n[Web Search Failed: " + searchError + "]"
+                    );
                     setTimeout(function () {
                         sendMessage(updatedMessages, recursiveConfig, onStreaming, onComplete, onError);
                     }, 1500);
@@ -448,45 +424,19 @@ function sendMessage(messages, config, onStreaming, onComplete, onError) {
                 }
 
                 Search.fetchWebpage(fallbackUrl, function (webpageText) {
-                    var updatedMessages = [];
-                    for (var j = 0; j < messages.length; j++) {
-                        updatedMessages.push({
-                            role: messages[j].role,
-                            content: messages[j].content
-                        });
-                    }
-                    var lastUserIndex = -1;
-                    for (var k = updatedMessages.length - 1; k >= 0; k--) {
-                        if (updatedMessages[k].role === "user") {
-                            lastUserIndex = k;
-                            break;
-                        }
-                    }
-                    if (lastUserIndex !== -1) {
-                        updatedMessages[lastUserIndex].content += "\n\n[Webpage Content for \"" + fallbackUrl + "\"]\n" + webpageText;
-                    }
+                    var updatedMessages = appendToLastUserMessage(
+                        messages,
+                        "\n\n[Webpage Content for \"" + fallbackUrl + "\"]\n" + webpageText
+                    );
                     sendMessage(updatedMessages, recursiveConfig, onStreaming, onComplete, onError);
                 }, function (fetchError) {
                     if (typeof onStreaming === "function") {
                         onStreaming(fallbackDisplayText + "⚠ Webpage Fetch Failed: " + fetchError);
                     }
-                    var updatedMessages = [];
-                    for (var j = 0; j < messages.length; j++) {
-                        updatedMessages.push({
-                            role: messages[j].role,
-                            content: messages[j].content
-                        });
-                    }
-                    var lastUserIndex = -1;
-                    for (var k = updatedMessages.length - 1; k >= 0; k--) {
-                        if (updatedMessages[k].role === "user") {
-                            lastUserIndex = k;
-                            break;
-                        }
-                    }
-                    if (lastUserIndex !== -1) {
-                        updatedMessages[lastUserIndex].content += "\n\n[Webpage Fetch Failed: " + fetchError + "]";
-                    }
+                    var updatedMessages = appendToLastUserMessage(
+                        messages,
+                        "\n\n[Webpage Fetch Failed: " + fetchError + "]"
+                    );
                     setTimeout(function () {
                         sendMessage(updatedMessages, recursiveConfig, onStreaming, onComplete, onError);
                     }, 1500);
@@ -536,10 +486,7 @@ function testConnection(config, onSuccess, onError) {
 
     var xhr = new XMLHttpRequest();
     xhr.open("POST", url, true);
-    xhr.setRequestHeader("Content-Type", "application/json");
-    if (config.apiKey && config.apiKey.trim() !== "") {
-        xhr.setRequestHeader("Authorization", "Bearer " + config.apiKey.trim());
-    }
+    applyAuthHeaders(xhr, config.apiKey);
 
     var data = JSON.stringify({
         model: config.modelName || "llama3",
@@ -553,15 +500,7 @@ function testConnection(config, onSuccess, onError) {
             if (xhr.status === 200) {
                 if (typeof onSuccess === "function") onSuccess();
             } else {
-                var msg = "HTTP " + xhr.status;
-                if (xhr.status === 0) msg = "Connection refused — is the server running?";
-                else if (xhr.status === 401) msg = "Unauthorized — check your API key";
-                else if (xhr.status === 404) msg = "Not found — check the API URL";
-                try {
-                    var body = JSON.parse(xhr.responseText);
-                    if (body.error && body.error.message) msg = body.error.message;
-                } catch (e) { }
-                if (typeof onError === "function") onError(msg);
+                if (typeof onError === "function") onError(parseHttpError(xhr));
             }
         }
     };
@@ -575,10 +514,7 @@ function fetchModels(config, onSuccess, onError) {
 
     var xhr = new XMLHttpRequest();
     xhr.open("GET", url, true);
-    xhr.setRequestHeader("Content-Type", "application/json");
-    if (config.apiKey && config.apiKey.trim() !== "") {
-        xhr.setRequestHeader("Authorization", "Bearer " + config.apiKey.trim());
-    }
+    applyAuthHeaders(xhr, config.apiKey);
 
     xhr.onreadystatechange = function () {
         if (xhr.readyState === 4) {
@@ -598,13 +534,7 @@ function fetchModels(config, onSuccess, onError) {
                     if (typeof onError === "function") onError("Failed to parse models response: " + e.message);
                 }
             } else {
-                var msg = "HTTP " + xhr.status;
-                if (xhr.status === 0) msg = "Connection refused — is the server running?";
-                try {
-                    var errBody = JSON.parse(xhr.responseText);
-                    if (errBody.error && errBody.error.message) msg = errBody.error.message;
-                } catch (e) { }
-                if (typeof onError === "function") onError(msg);
+                if (typeof onError === "function") onError(parseHttpError(xhr));
             }
         }
     };

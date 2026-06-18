@@ -23,14 +23,19 @@ PlasmoidItem {
 
     preferredRepresentation: Plasmoid.containmentType === Plasmoid.PanelContainment ? compactRepresentation : fullRepresentation
 
-    compactRepresentation: PlasmaComponents.ToolButton {
-        id: compactButton
+    compactRepresentation: MouseArea {
+        id: compactArea
 
-        flat: true
-        icon.name: Plasmoid.icon || "dialog-messages"
+        hoverEnabled: true
 
-        checked: root.expanded
         onClicked: root.expanded = !root.expanded
+
+        Kirigami.Icon {
+            id: compactIcon
+            anchors.fill: parent
+            source: Plasmoid.icon || "dialog-messages"
+            active: compactArea.containsMouse
+        }
 
         PlasmaComponents.ToolTip {
             text: "KDE Assistant"
