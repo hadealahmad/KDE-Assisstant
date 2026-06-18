@@ -29,6 +29,21 @@ Item {
     property bool historyViewActive: false
     property bool memoriesViewActive: false
 
+    property int _originalFlags: 0
+
+    onWindowChanged: {
+        if (window && _originalFlags === 0) {
+            _originalFlags = window.flags;
+        }
+    }
+
+    Binding {
+        target: fullRepRoot.window
+        property: "flags"
+        value: root.keepOpen ? (_originalFlags | Qt.WindowStaysOnTopHint) : _originalFlags
+        when: fullRepRoot.window !== null && _originalFlags !== 0
+    }
+
     // ── Command execution state ──────────────────────────────────
     property var activeCommandCallback: null
     property int activeAssistantIndex: -1
@@ -344,9 +359,9 @@ Item {
     }
 
     Connections {
-        target: Plasmoid
+        target: root
         function onExpandedChanged() {
-            if (Plasmoid.expanded) {
+            if (root.expanded) {
                 inputArea.forceActiveFocus();
             }
         }
@@ -779,12 +794,12 @@ Item {
                     // Pin / Unpin button — keeps the popup open when focus is lost
                     PlasmaComponents.ToolButton {
                         id: pinButton
-                        icon.name: Plasmoid.hideOnWindowDeactivate ? "window-pin" : "window-unpin"
-                        checked: !Plasmoid.hideOnWindowDeactivate
+                        icon.name: root.keepOpen ? "window-unpin" : "window-pin"
+                        checked: root.keepOpen
                         checkable: true
-                        onClicked: Plasmoid.hideOnWindowDeactivate = !Plasmoid.hideOnWindowDeactivate
+                        onClicked: root.keepOpen = !root.keepOpen
                         PlasmaComponents.ToolTip {
-                            text: Plasmoid.hideOnWindowDeactivate ? "Pin (keep open)" : "Unpin (auto-close)"
+                            text: root.keepOpen ? "Unpin (auto-close)" : "Pin (keep open)"
                         }
                     }
                 }
