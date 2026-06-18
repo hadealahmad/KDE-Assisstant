@@ -1,0 +1,21 @@
+# KDE Settings
+.directory
+
+# Temp/Backup Files
+*~
+*.autosave
+*.bak
+
+# IDE & Editor Files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS Specific
+.DS_Store
+Thumbs.db
+
+# Project-specific logs or settings
+.gemini/
+antigravity-ide/
