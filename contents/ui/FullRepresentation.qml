@@ -11,7 +11,7 @@ import org.kde.plasma.plasmoid
 import org.kde.plasma.components as PlasmaComponents
 import org.kde.kirigami as Kirigami
 import org.kde.plasma.plasma5support as Plasma5Support
-import QtWebEngine
+
 
 import "../code/ApiClient.js" as Api
 import "../code/Database.js" as Db
@@ -50,38 +50,6 @@ Item {
     property string sttErrorText: ""
     property string activeSttCommand: ""
 
-    WebEngineView {
-        id: hiddenSttWebEngine
-        visible: false
-        url: Qt.resolvedUrl("stt.html")
-
-        onFeaturePermissionRequested: function(securityOrigin, feature) {
-            if (feature === WebEngineView.MediaAudioCapture) {
-                grantFeaturePermission(securityOrigin, feature, true);
-            }
-        }
-
-        onJavaScriptConsoleMessage: function(level, message, lineNumber, sourceId) {
-            console.log("STT_WEBENGINE: console log: " + message);
-            if (message.startsWith("STT_TRANSCRIPT:")) {
-                var transcript = message.substring("STT_TRANSCRIPT:".length);
-                console.log("STT_WEBENGINE: Got transcript: " + transcript);
-                insertTextIntoInput(transcript);
-                isRecording = false;
-            } else if (message.startsWith("STT_ERROR:")) {
-                sttErrorText = message.substring("STT_ERROR:".length);
-                console.log("STT_WEBENGINE: Got error: " + sttErrorText);
-                isRecording = false;
-            } else if (message.startsWith("STT_STATUS:LISTENING")) {
-                console.log("STT_WEBENGINE: Speech recognition is listening.");
-                isRecording = true;
-            } else if (message.startsWith("STT_STATUS:STOPPED")) {
-                console.log("STT_WEBENGINE: Speech recognition stopped.");
-                isRecording = false;
-            }
-        }
-    }
-
     function insertTextIntoInput(text) {
         console.log("STT_QML: Inserting text: " + text);
         if (text && text.trim().length > 0) {
@@ -95,7 +63,7 @@ Item {
     }
 
     function toggleRecording() {
-        var backend = Plasmoid.configuration.sttBackend || "webspeech";
+        var backend = Plasmoid.configuration.sttBackend || "disabled";
         console.log("STT_QML: toggleRecording() clicked. Backend: " + backend + ", Currently recording: " + isRecording);
         if (backend === "disabled") return;
 
@@ -108,39 +76,35 @@ Item {
 
     function startRecordingSession() {
         sttErrorText = "";
-        var backend = Plasmoid.configuration.sttBackend || "webspeech";
+        var backend = Plasmoid.configuration.sttBackend || "disabled";
         var lang = Plasmoid.configuration.sttLanguage || "en-US";
         console.log("STT_QML: Starting recording session. Backend: " + backend + ", Lang: " + lang);
 
-        if (backend === "webspeech") {
-            hiddenSttWebEngine.runJavaScript("startSpeechRecognition('" + lang + "')");
-        } else {
-            isRecording = true;
-            activeSttCommand = "arecord -f S16_LE -r 16000 -c 1 /tmp/kde_assistant_voice.wav";
-            console.log("STT_QML: Recording audio via command: " + activeSttCommand);
-            executeCommandLine(activeSttCommand);
-        }
+        if (backend === "disabled") return;
+
+        isRecording = true;
+        activeSttCommand = "arecord -f S16_LE -r 16000 -c 1 /tmp/kde_assistant_voice.wav";
+        console.log("STT_QML: Recording audio via command: " + activeSttCommand);
+        executeCommandLine(activeSttCommand);
     }
 
     function stopRecordingSession() {
-        var backend = Plasmoid.configuration.sttBackend || "webspeech";
+        var backend = Plasmoid.configuration.sttBackend || "disabled";
         console.log("STT_QML: Stopping recording session. Backend: " + backend);
 
-        if (backend === "webspeech") {
-            hiddenSttWebEngine.runJavaScript("stopSpeechRecognition()");
-        } else {
-            activeCommandCallback = function(stdout, stderr, exitCode) {
-                console.log("STT_QML: arecord killed successfully. stdout: " + stdout + ", stderr: " + stderr + ", exitCode: " + exitCode);
-                isRecording = false;
-                processRecordedAudio();
-            }
-            console.log("STT_QML: Terminating arecord process via killall.");
-            executeCommandLine("killall arecord");
+        if (backend === "disabled") return;
+
+        activeCommandCallback = function(stdout, stderr, exitCode) {
+            console.log("STT_QML: arecord killed successfully. stdout: " + stdout + ", stderr: " + stderr + ", exitCode: " + exitCode);
+            isRecording = false;
+            processRecordedAudio();
         }
+        console.log("STT_QML: Terminating arecord process via killall.");
+        executeCommandLine("killall arecord");
     }
 
     function processRecordedAudio() {
-        var backend = Plasmoid.configuration.sttBackend || "webspeech";
+        var backend = Plasmoid.configuration.sttBackend || "disabled";
         console.log("STT_QML: Processing recorded audio. Backend: " + backend);
         if (backend === "local") {
             transcribeLocally();
@@ -1117,7 +1081,7 @@ Item {
                         icon.name: isRecording ? "audio-input-microphone" : "audio-input-microphone-muted"
                         checked: isRecording
                         checkable: true
-                        visible: (Plasmoid.configuration.sttBackend || "webspeech") !== "disabled"
+                        visible: (Plasmoid.configuration.sttBackend || "disabled") !== "disabled"
                         onClicked: toggleRecording()
                         PlasmaComponents.ToolTip {
                             text: sttErrorText.length > 0 ? "Error: " + sttErrorText : (isRecording ? "Recording... Click to Stop & Transcribe" : "Voice Typing (Speech-to-Text)")

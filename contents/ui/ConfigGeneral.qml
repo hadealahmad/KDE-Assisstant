@@ -591,19 +591,18 @@ QQC2.ScrollView {
             id: sttBackendCombo
             Kirigami.FormData.label: i18n("STT Backend:")
             model: [
-                { text: i18n("Web Speech API (Default)"), value: "webspeech" },
-                { text: i18n("Cloud Whisper API"), value: "cloud" },
-                { text: i18n("Local whisper.cpp (Offline)"), value: "local" },
+                { text: i18n("Whisper API (Local/Cloud)"), value: "cloud" },
+                { text: i18n("Local whisper.cpp (Offline CLI)"), value: "local" },
                 { text: i18n("Disabled"), value: "disabled" }
             ]
             textRole: "text"
             currentIndex: {
                 var val = scrollRoot.cfg_sttBackend;
-                var idx = ["webspeech", "cloud", "local", "disabled"].indexOf(val);
-                return idx >= 0 ? idx : 0;
+                var idx = ["cloud", "local", "disabled"].indexOf(val);
+                return idx >= 0 ? idx : 2; // Default to Disabled (index 2)
             }
             onActivated: {
-                scrollRoot.cfg_sttBackend = ["webspeech", "cloud", "local", "disabled"][currentIndex];
+                scrollRoot.cfg_sttBackend = ["cloud", "local", "disabled"][currentIndex];
             }
         }
 
@@ -628,29 +627,29 @@ QQC2.ScrollView {
         // Cloud STT settings (visible if backend == 'cloud')
         QQC2.TextField {
             id: sttCloudUrl
-            Kirigami.FormData.label: i18n("Cloud Transcription URL:")
-            visible: sttBackendCombo.currentIndex === 1
+            Kirigami.FormData.label: i18n("Whisper API Endpoint:")
+            visible: sttBackendCombo.currentIndex === 0
         }
 
         QQC2.TextField {
             id: sttCloudApiKey
-            Kirigami.FormData.label: i18n("Cloud API Key:")
+            Kirigami.FormData.label: i18n("API Key:")
             echoMode: QQC2.TextField.Password
-            placeholderText: i18n("Leave blank to reuse main LLM API Key")
-            visible: sttBackendCombo.currentIndex === 1
+            placeholderText: i18n("Leave blank for local servers like LM Studio")
+            visible: sttBackendCombo.currentIndex === 0
         }
 
         // Local STT settings (visible if backend == 'local')
         QQC2.TextField {
             id: sttWhisperCli
             Kirigami.FormData.label: i18n("whisper.cpp Path:")
-            visible: sttBackendCombo.currentIndex === 2
+            visible: sttBackendCombo.currentIndex === 1
         }
 
         QQC2.TextField {
             id: sttWhisperModel
             Kirigami.FormData.label: i18n("Model Path (.bin):")
-            visible: sttBackendCombo.currentIndex === 2
+            visible: sttBackendCombo.currentIndex === 1
         }
     }
 }

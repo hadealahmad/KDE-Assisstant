@@ -47,5 +47,23 @@
         <entry name="userNotes" type="String">
             <default></default>
         </entry>
+        <entry name="sttBackend" type="String">
+            <default>disabled</default>
+        </entry>
+        <entry name="sttLanguage" type="String">
+            <default>en-US</default>
+        </entry>
+        <entry name="sttWhisperCliPath" type="String">
+            <default>whisper-cli</default>
+        </entry>
+        <entry name="sttWhisperModelPath" type="String">
+            <default>/usr/share/whisper/ggml-tiny.bin</default>
+        </entry>
+        <entry name="sttCloudApiKey" type="String">
+            <default></default>
+        </entry>
+        <entry name="sttCloudUrl" type="String">
+            <default>https://api.openai.com/v1/audio/transcriptions</default>
+        </entry>
     </group>
 </kcfg>
