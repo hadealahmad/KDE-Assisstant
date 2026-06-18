@@ -15,39 +15,39 @@ QQC2.ScrollView {
     // ── cfg_ aliases must live on the root element ─────────────
     // apiKey, apiUrl, systemPrompt, modelName, temperature, maxTokens are
     // written manually so we can apply custom logic (scaling, locking, etc.)
-    property alias cfg_searchEnabled:  searchEnabled.checked
-    property alias cfg_searchApiKey:   searchApiKey.text
+    property alias cfg_searchEnabled: searchEnabled.checked
+    property alias cfg_searchApiKey: searchApiKey.text
     property alias cfg_searchExtraUrl: searchExtraUrl.text
     property alias cfg_grepMaxResults: grepMaxResults.value
-    property alias cfg_userNotes:      userNotes.text
+    property alias cfg_userNotes: userNotes.text
+
+    // Speech-to-Text configuration
+    property string cfg_sttBackend: plasmoid.configuration.sttBackend || "webspeech"
+    property string cfg_sttLanguage: plasmoid.configuration.sttLanguage || "en-US"
+    property alias cfg_sttWhisperCliPath: sttWhisperCli.text
+    property alias cfg_sttWhisperModelPath: sttWhisperModel.text
+    property alias cfg_sttCloudApiKey: sttCloudApiKey.text
+    property alias cfg_sttCloudUrl: sttCloudUrl.text
 
     // ── Provider preset tables ─────────────────────────────────
     // Fix #11: renamed "google" → "gemini" to avoid collision with the
     //          search provider ID also named "google"
-    property var _providerIds:  ["openrouter", "openai", "gemini", "lmstudio", "ollama", "llamacpp", "custom"]
-    property var _providerUrls: [
-        "https://openrouter.ai/api/v1",
-        "https://api.openai.com/v1",
-        "https://generativelanguage.googleapis.com/v1beta/openai",
-        "http://localhost:1234/v1",
-        "http://localhost:11434/v1",
-        "http://localhost:8080/v1",
-        ""
-    ]
+    property var _providerIds: ["openrouter", "openai", "gemini", "lmstudio", "ollama", "llamacpp", "custom"]
+    property var _providerUrls: ["https://openrouter.ai/api/v1", "https://api.openai.com/v1", "https://generativelanguage.googleapis.com/v1beta/openai", "http://localhost:1234/v1", "http://localhost:11434/v1", "http://localhost:8080/v1", ""]
     property var _providerNeedsKey: [true, true, true, false, false, false, false]
 
     // ── Search / grep provider tables ──────────────────────────
     property var _searchProviders: ["ddg", "tavily", "searxng", "google"]
-    property var _grepProviders:   ["grep", "ripgrep"]
+    property var _grepProviders: ["grep", "ripgrep"]
 
     // ── API URL state ──────────────────────────────────────────
     property string _currentApiUrl: plasmoid.configuration.apiUrl || "http://localhost:11434/v1"
 
     // ── Model fetch state ──────────────────────────────────────
     // Fix #3: removed dead _filteredModels array; modelListModel is the single source of truth
-    property var    _fetchedModels:    []
-    property string _fetchStatus:      ""   // "": idle  "loading"  "ok"  "error"
-    property string _fetchError:       ""
+    property var _fetchedModels: []
+    property string _fetchStatus: ""   // "": idle  "loading"  "ok"  "error"
+    property string _fetchError: ""
     // Fix #12: store search query as a property instead of directly referencing
     //          a deeply-nested UI element from the helper function
     property string _modelSearchQuery: ""
@@ -55,7 +55,7 @@ QQC2.ScrollView {
     // ── Test connection state ──────────────────────────────────
     // Fix #9: new inline test connection feature
     property string _testStatus: ""   // "": idle  "testing"  "ok"  "error"
-    property string _testError:  ""
+    property string _testError: ""
 
     // ── Restore saved state on open ────────────────────────────
     Component.onCompleted: {
@@ -72,18 +72,22 @@ QQC2.ScrollView {
         var src = _fetchedModels;
         if (query && query.trim() !== "") {
             var q = query.toLowerCase();
-            src = src.filter(function (m) { return m.toLowerCase().indexOf(q) !== -1; });
+            src = src.filter(function (m) {
+                return m.toLowerCase().indexOf(q) !== -1;
+            });
         }
         modelListModel.clear();
         for (var i = 0; i < src.length; i++) {
-            modelListModel.append({ modelId: src[i] });
+            modelListModel.append({
+                modelId: src[i]
+            });
         }
     }
 
     // ── Helper: fetch available models from the API endpoint ───
     function _fetchModels() {
         _fetchStatus = "loading";
-        _fetchError  = "";
+        _fetchError = "";
         var url = _currentApiUrl.replace(/\/$/, "") + "/models";
         var key = plasmoid.configuration.apiKey || "";
         var xhr = new XMLHttpRequest();
@@ -92,7 +96,8 @@ QQC2.ScrollView {
         if (key.trim() !== "")
             xhr.setRequestHeader("Authorization", "Bearer " + key.trim());
         xhr.onreadystatechange = function () {
-            if (xhr.readyState !== 4) return;
+            if (xhr.readyState !== 4)
+                return;
             if (xhr.status === 200) {
                 try {
                     var body = JSON.parse(xhr.responseText);
@@ -109,20 +114,25 @@ QQC2.ScrollView {
                     _fetchStatus = "ok";
                     var cur = modelCombo.editText;
                     var idx = list.indexOf(cur);
-                    if (idx >= 0) modelCombo.currentIndex = idx;
+                    if (idx >= 0)
+                        modelCombo.currentIndex = idx;
                 } catch (e) {
                     _fetchStatus = "error";
-                    _fetchError  = "Failed to parse response: " + e.message;
+                    _fetchError = "Failed to parse response: " + e.message;
                 }
             } else {
                 _fetchStatus = "error";
                 var msg = "HTTP " + xhr.status;
-                if (xhr.status === 0)   msg = "Connection refused — is the server running?";
-                if (xhr.status === 401) msg = "Unauthorized — check your API key";
-                if (xhr.status === 404) msg = "Not found — check the API URL";
+                if (xhr.status === 0)
+                    msg = "Connection refused — is the server running?";
+                if (xhr.status === 401)
+                    msg = "Unauthorized — check your API key";
+                if (xhr.status === 404)
+                    msg = "Not found — check the API URL";
                 try {
                     var errBody = JSON.parse(xhr.responseText);
-                    if (errBody.error && errBody.error.message) msg = errBody.error.message;
+                    if (errBody.error && errBody.error.message)
+                        msg = errBody.error.message;
                 } catch (e) {}
                 _fetchError = msg;
             }
@@ -134,34 +144,43 @@ QQC2.ScrollView {
     // Fix #9: new function — mirrors ApiClient.testConnection() but inline
     function _testConnection() {
         _testStatus = "testing";
-        _testError  = "";
-        var url   = _currentApiUrl.replace(/\/$/, "") + "/chat/completions";
-        var key   = plasmoid.configuration.apiKey   || "";
+        _testError = "";
+        var url = _currentApiUrl.replace(/\/$/, "") + "/chat/completions";
+        var key = plasmoid.configuration.apiKey || "";
         var model = plasmoid.configuration.modelName || "llama3";
-        var xhr   = new XMLHttpRequest();
+        var xhr = new XMLHttpRequest();
         xhr.open("POST", url, true);
         xhr.setRequestHeader("Content-Type", "application/json");
         if (key.trim() !== "")
             xhr.setRequestHeader("Authorization", "Bearer " + key.trim());
         xhr.onreadystatechange = function () {
-            if (xhr.readyState !== 4) return;
+            if (xhr.readyState !== 4)
+                return;
             if (xhr.status === 200) {
                 _testStatus = "ok";
             } else {
                 _testStatus = "error";
                 var msg = "HTTP " + xhr.status;
-                if (xhr.status === 0)   msg = "Connection refused — is the server running?";
-                if (xhr.status === 401) msg = "Unauthorized — check your API key";
+                if (xhr.status === 0)
+                    msg = "Connection refused — is the server running?";
+                if (xhr.status === 401)
+                    msg = "Unauthorized — check your API key";
                 try {
                     var body = JSON.parse(xhr.responseText);
-                    if (body.error && body.error.message) msg = body.error.message;
+                    if (body.error && body.error.message)
+                        msg = body.error.message;
                 } catch (e) {}
                 _testError = msg;
             }
         };
         xhr.send(JSON.stringify({
             model: model,
-            messages: [{ role: "user", content: "hi" }],
+            messages: [
+                {
+                    role: "user",
+                    content: "hi"
+                }
+            ],
             max_tokens: 1,
             stream: false
         }));
@@ -186,17 +205,9 @@ QQC2.ScrollView {
         QQC2.ComboBox {
             id: apiProviderCombo
             Kirigami.FormData.label: i18n("Provider:")
-            model: [
-                i18n("OpenRouter"),
-                i18n("OpenAI"),
-                i18n("Google (Gemini)"),
-                i18n("LM Studio (local)"),
-                i18n("Ollama (local)"),
-                i18n("llama.cpp (local)"),
-                i18n("Custom")
-            ]
+            model: [i18n("OpenRouter"), i18n("OpenAI"), i18n("Google (Gemini)"), i18n("LM Studio (local)"), i18n("Ollama (local)"), i18n("llama.cpp (local)"), i18n("Custom")]
             onActivated: {
-                var id  = scrollRoot._providerIds[currentIndex];
+                var id = scrollRoot._providerIds[currentIndex];
                 var url = scrollRoot._providerUrls[currentIndex];
                 plasmoid.configuration.apiProvider = id;
                 if (id !== "custom") {
@@ -206,10 +217,10 @@ QQC2.ScrollView {
                 }
                 // Fix #10: provider changed — stale model list and test result are invalid
                 scrollRoot._fetchedModels = [];
-                scrollRoot._fetchStatus   = "";
-                scrollRoot._fetchError    = "";
-                scrollRoot._testStatus    = "";
-                scrollRoot._testError     = "";
+                scrollRoot._fetchStatus = "";
+                scrollRoot._fetchError = "";
+                scrollRoot._testStatus = "";
+                scrollRoot._testError = "";
                 modelListModel.clear();
             }
         }
@@ -234,7 +245,7 @@ QQC2.ScrollView {
                         plasmoid.configuration.apiUrl = text;
                         // URL changed — previous test result is stale
                         scrollRoot._testStatus = "";
-                        scrollRoot._testError  = "";
+                        scrollRoot._testError = "";
                     }
                 }
                 QQC2.ToolTip {
@@ -246,14 +257,8 @@ QQC2.ScrollView {
             // Fix #9: Test Connection button
             QQC2.Button {
                 id: testConnBtn
-                icon.name: scrollRoot._testStatus === "ok"      ? "dialog-ok-apply"
-                         : scrollRoot._testStatus === "error"   ? "dialog-error"
-                         : scrollRoot._testStatus === "testing" ? "view-refresh"
-                         : "network-connect"
-                text: scrollRoot._testStatus === "testing" ? i18n("Testing…")
-                    : scrollRoot._testStatus === "ok"      ? i18n("Connected!")
-                    : scrollRoot._testStatus === "error"   ? i18n("Failed")
-                    : i18n("Test")
+                icon.name: scrollRoot._testStatus === "ok" ? "dialog-ok-apply" : scrollRoot._testStatus === "error" ? "dialog-error" : scrollRoot._testStatus === "testing" ? "view-refresh" : "network-connect"
+                text: scrollRoot._testStatus === "testing" ? i18n("Testing…") : scrollRoot._testStatus === "ok" ? i18n("Connected!") : scrollRoot._testStatus === "error" ? i18n("Failed") : i18n("Test")
                 enabled: scrollRoot._testStatus !== "testing"
                 onClicked: scrollRoot._testConnection()
             }
@@ -300,9 +305,11 @@ QQC2.ScrollView {
                 id: modelCombo
                 Layout.fillWidth: true
                 editable: true
-                model: ListModel { id: modelListModel }
+                model: ListModel {
+                    id: modelListModel
+                }
                 textRole: "modelId"
-                onActivated:       plasmoid.configuration.modelName = currentValue
+                onActivated: plasmoid.configuration.modelName = currentValue
                 onEditTextChanged: plasmoid.configuration.modelName = editText
 
                 popup: QQC2.Popup {
@@ -331,7 +338,9 @@ QQC2.ScrollView {
                             }
                         }
 
-                        Kirigami.Separator { Layout.fillWidth: true }
+                        Kirigami.Separator {
+                            Layout.fillWidth: true
+                        }
 
                         QQC2.ScrollView {
                             Layout.fillWidth: true
@@ -343,7 +352,7 @@ QQC2.ScrollView {
                                 model: modelListModel
                                 delegate: QQC2.ItemDelegate {
                                     required property string modelId
-                                    required property int    index
+                                    required property int index
                                     width: ListView.view.width
                                     text: modelId
                                     highlighted: modelCombo.editText === modelId
@@ -357,13 +366,7 @@ QQC2.ScrollView {
                                 QQC2.Label {
                                     anchors.centerIn: parent
                                     visible: modelListModel.count === 0
-                                    text: scrollRoot._fetchStatus === "loading"
-                                        ? i18n("Fetching models…")
-                                        : scrollRoot._fetchStatus === ""
-                                            ? i18n("Click Fetch Models to load the list")
-                                            : scrollRoot._fetchStatus === "error"
-                                                ? i18n("Could not load models")
-                                                : i18n("No models match your search")
+                                    text: scrollRoot._fetchStatus === "loading" ? i18n("Fetching models…") : scrollRoot._fetchStatus === "" ? i18n("Click Fetch Models to load the list") : scrollRoot._fetchStatus === "error" ? i18n("Could not load models") : i18n("No models match your search")
                                     color: Kirigami.Theme.disabledTextColor
                                     font.pointSize: Kirigami.Theme.smallFont.pointSize
                                 }
@@ -393,12 +396,8 @@ QQC2.ScrollView {
         QQC2.Label {
             visible: scrollRoot._fetchStatus === "error" || scrollRoot._fetchStatus === "ok"
             height: visible ? implicitHeight : 0
-            text: scrollRoot._fetchStatus === "error"
-                ? "⚠ " + scrollRoot._fetchError
-                : "✓ " + scrollRoot._fetchedModels.length + " " + i18n("models loaded")
-            color: scrollRoot._fetchStatus === "error"
-                ? Kirigami.Theme.negativeTextColor
-                : Kirigami.Theme.positiveTextColor
+            text: scrollRoot._fetchStatus === "error" ? "⚠ " + scrollRoot._fetchError : "✓ " + scrollRoot._fetchedModels.length + " " + i18n("models loaded")
+            color: scrollRoot._fetchStatus === "error" ? Kirigami.Theme.negativeTextColor : Kirigami.Theme.positiveTextColor
             font.pointSize: Kirigami.Theme.smallFont.pointSize
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
@@ -457,7 +456,7 @@ QQC2.ScrollView {
             Layout.fillWidth: true
             Layout.fillHeight: false
             Layout.preferredHeight: Kirigami.Units.gridUnit * 7
-            Layout.maximumHeight:   Kirigami.Units.gridUnit * 7
+            Layout.maximumHeight: Kirigami.Units.gridUnit * 7
             wrapMode: TextEdit.Wrap
             Component.onCompleted: text = plasmoid.configuration.systemPrompt || "You are a helpful assistant."
             onTextChanged: plasmoid.configuration.systemPrompt = text
@@ -484,7 +483,7 @@ QQC2.ScrollView {
             Layout.fillWidth: true
             Layout.fillHeight: false
             Layout.preferredHeight: Kirigami.Units.gridUnit * 6
-            Layout.maximumHeight:   Kirigami.Units.gridUnit * 6
+            Layout.maximumHeight: Kirigami.Units.gridUnit * 6
             wrapMode: TextEdit.Wrap
             placeholderText: i18n("E.g. My name is Hadi. I use KDE Plasma on Arch Linux. I work in Qt/QML and Python.")
         }
@@ -509,7 +508,7 @@ QQC2.ScrollView {
             enabled: searchEnabled.checked
             opacity: enabled ? 1.0 : 0.5
             currentIndex: {
-                var p   = plasmoid.configuration.searchProvider;
+                var p = plasmoid.configuration.searchProvider;
                 var idx = scrollRoot._searchProviders.indexOf(p);
                 return idx >= 0 ? idx : 0;
             }
@@ -519,13 +518,17 @@ QQC2.ScrollView {
         // Fix #7: contextual hint so users know which fields are required for each provider
         QQC2.Label {
             visible: searchEnabled.checked
-            height:  visible ? implicitHeight : 0
+            height: visible ? implicitHeight : 0
             text: {
                 var p = scrollRoot._searchProviders[searchProviderCombo.currentIndex];
-                if (p === "ddg")     return i18n("No API key needed — free, privacy-respecting");
-                if (p === "tavily")  return i18n("Requires a Tavily API key below");
-                if (p === "searxng") return i18n("Requires a self-hosted SearXNG instance URL below");
-                if (p === "google")  return i18n("Requires a Google API key and a Custom Search Engine CX below");
+                if (p === "ddg")
+                    return i18n("No API key needed — free, privacy-respecting");
+                if (p === "tavily")
+                    return i18n("Requires a Tavily API key below");
+                if (p === "searxng")
+                    return i18n("Requires a self-hosted SearXNG instance URL below");
+                if (p === "google")
+                    return i18n("Requires a Google API key and a Custom Search Engine CX below");
                 return "";
             }
             color: Kirigami.Theme.disabledTextColor
@@ -538,10 +541,7 @@ QQC2.ScrollView {
         QQC2.TextField {
             id: searchApiKey
             Kirigami.FormData.label: i18n("API Key / CX:")
-            enabled: searchEnabled.checked && (
-                scrollRoot._searchProviders[searchProviderCombo.currentIndex] === "tavily" ||
-                scrollRoot._searchProviders[searchProviderCombo.currentIndex] === "google"
-            )
+            enabled: searchEnabled.checked && (scrollRoot._searchProviders[searchProviderCombo.currentIndex] === "tavily" || scrollRoot._searchProviders[searchProviderCombo.currentIndex] === "google")
             opacity: enabled ? 1.0 : 0.5
         }
 
@@ -550,8 +550,7 @@ QQC2.ScrollView {
             id: searchExtraUrl
             Kirigami.FormData.label: i18n("SearXNG Instance URL:")
             placeholderText: i18n("https://searxng.example.com")
-            enabled: searchEnabled.checked &&
-                     scrollRoot._searchProviders[searchProviderCombo.currentIndex] === "searxng"
+            enabled: searchEnabled.checked && scrollRoot._searchProviders[searchProviderCombo.currentIndex] === "searxng"
             opacity: enabled ? 1.0 : 0.5
         }
 
@@ -567,7 +566,7 @@ QQC2.ScrollView {
             Kirigami.FormData.label: i18n("Provider:")
             model: ["grep", "ripgrep"]
             currentIndex: {
-                var p   = plasmoid.configuration.grepProvider;
+                var p = plasmoid.configuration.grepProvider;
                 var idx = scrollRoot._grepProviders.indexOf(p);
                 return idx >= 0 ? idx : 0;
             }
@@ -579,6 +578,79 @@ QQC2.ScrollView {
             Kirigami.FormData.label: i18n("Max Results:")
             from: 1
             to: 200
+        }
+
+        // ── SECTION: Speech-to-Text (STT) ──────────────────────────
+
+        Item {
+            Kirigami.FormData.isSection: true
+            Kirigami.FormData.label: i18n("Speech-to-Text (STT)")
+        }
+
+        QQC2.ComboBox {
+            id: sttBackendCombo
+            Kirigami.FormData.label: i18n("STT Backend:")
+            model: [
+                { text: i18n("Web Speech API (Default)"), value: "webspeech" },
+                { text: i18n("Cloud Whisper API"), value: "cloud" },
+                { text: i18n("Local whisper.cpp (Offline)"), value: "local" },
+                { text: i18n("Disabled"), value: "disabled" }
+            ]
+            textRole: "text"
+            currentIndex: {
+                var val = scrollRoot.cfg_sttBackend;
+                var idx = ["webspeech", "cloud", "local", "disabled"].indexOf(val);
+                return idx >= 0 ? idx : 0;
+            }
+            onActivated: {
+                scrollRoot.cfg_sttBackend = ["webspeech", "cloud", "local", "disabled"][currentIndex];
+            }
+        }
+
+        QQC2.ComboBox {
+            id: sttLanguageCombo
+            Kirigami.FormData.label: i18n("Preferred Language:")
+            model: [
+                { text: i18n("English (US)"), value: "en-US" },
+                { text: i18n("Arabic"), value: "ar-SA" }
+            ]
+            textRole: "text"
+            currentIndex: {
+                var val = scrollRoot.cfg_sttLanguage;
+                var idx = ["en-US", "ar-SA"].indexOf(val);
+                return idx >= 0 ? idx : 0;
+            }
+            onActivated: {
+                scrollRoot.cfg_sttLanguage = ["en-US", "ar-SA"][currentIndex];
+            }
+        }
+
+        // Cloud STT settings (visible if backend == 'cloud')
+        QQC2.TextField {
+            id: sttCloudUrl
+            Kirigami.FormData.label: i18n("Cloud Transcription URL:")
+            visible: sttBackendCombo.currentIndex === 1
+        }
+
+        QQC2.TextField {
+            id: sttCloudApiKey
+            Kirigami.FormData.label: i18n("Cloud API Key:")
+            echoMode: QQC2.TextField.Password
+            placeholderText: i18n("Leave blank to reuse main LLM API Key")
+            visible: sttBackendCombo.currentIndex === 1
+        }
+
+        // Local STT settings (visible if backend == 'local')
+        QQC2.TextField {
+            id: sttWhisperCli
+            Kirigami.FormData.label: i18n("whisper.cpp Path:")
+            visible: sttBackendCombo.currentIndex === 2
+        }
+
+        QQC2.TextField {
+            id: sttWhisperModel
+            Kirigami.FormData.label: i18n("Model Path (.bin):")
+            visible: sttBackendCombo.currentIndex === 2
         }
     }
 }

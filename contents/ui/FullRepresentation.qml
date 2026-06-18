@@ -62,22 +62,28 @@ Item {
         }
 
         onJavaScriptConsoleMessage: function(level, message, lineNumber, sourceId) {
+            console.log("STT_WEBENGINE: console log: " + message);
             if (message.startsWith("STT_TRANSCRIPT:")) {
                 var transcript = message.substring("STT_TRANSCRIPT:".length);
+                console.log("STT_WEBENGINE: Got transcript: " + transcript);
                 insertTextIntoInput(transcript);
                 isRecording = false;
             } else if (message.startsWith("STT_ERROR:")) {
                 sttErrorText = message.substring("STT_ERROR:".length);
+                console.log("STT_WEBENGINE: Got error: " + sttErrorText);
                 isRecording = false;
             } else if (message.startsWith("STT_STATUS:LISTENING")) {
+                console.log("STT_WEBENGINE: Speech recognition is listening.");
                 isRecording = true;
             } else if (message.startsWith("STT_STATUS:STOPPED")) {
+                console.log("STT_WEBENGINE: Speech recognition stopped.");
                 isRecording = false;
             }
         }
     }
 
     function insertTextIntoInput(text) {
+        console.log("STT_QML: Inserting text: " + text);
         if (text && text.trim().length > 0) {
             if (inputArea.text.length > 0) {
                 inputArea.text += " " + text.trim();
@@ -90,6 +96,7 @@ Item {
 
     function toggleRecording() {
         var backend = Plasmoid.configuration.sttBackend || "webspeech";
+        console.log("STT_QML: toggleRecording() clicked. Backend: " + backend + ", Currently recording: " + isRecording);
         if (backend === "disabled") return;
 
         if (isRecording) {
@@ -103,32 +110,38 @@ Item {
         sttErrorText = "";
         var backend = Plasmoid.configuration.sttBackend || "webspeech";
         var lang = Plasmoid.configuration.sttLanguage || "en-US";
+        console.log("STT_QML: Starting recording session. Backend: " + backend + ", Lang: " + lang);
 
         if (backend === "webspeech") {
             hiddenSttWebEngine.runJavaScript("startSpeechRecognition('" + lang + "')");
         } else {
             isRecording = true;
             activeSttCommand = "arecord -f S16_LE -r 16000 -c 1 /tmp/kde_assistant_voice.wav";
+            console.log("STT_QML: Recording audio via command: " + activeSttCommand);
             executeCommandLine(activeSttCommand);
         }
     }
 
     function stopRecordingSession() {
         var backend = Plasmoid.configuration.sttBackend || "webspeech";
+        console.log("STT_QML: Stopping recording session. Backend: " + backend);
 
         if (backend === "webspeech") {
             hiddenSttWebEngine.runJavaScript("stopSpeechRecognition()");
         } else {
             activeCommandCallback = function(stdout, stderr, exitCode) {
+                console.log("STT_QML: arecord killed successfully. stdout: " + stdout + ", stderr: " + stderr + ", exitCode: " + exitCode);
                 isRecording = false;
                 processRecordedAudio();
             }
+            console.log("STT_QML: Terminating arecord process via killall.");
             executeCommandLine("killall arecord");
         }
     }
 
     function processRecordedAudio() {
         var backend = Plasmoid.configuration.sttBackend || "webspeech";
+        console.log("STT_QML: Processing recorded audio. Backend: " + backend);
         if (backend === "local") {
             transcribeLocally();
         } else if (backend === "cloud") {
@@ -142,15 +155,19 @@ Item {
         var lang = (Plasmoid.configuration.sttLanguage || "en-US").split("-")[0];
 
         var cmd = cli + " -m " + model + " -f /tmp/kde_assistant_voice.wav -l " + lang + " -otxt";
+        console.log("STT_QML: Running local whisper transcription: " + cmd);
 
         activeCommandCallback = function(stdout, stderr, exitCode) {
+            console.log("STT_QML: Local whisper finished. exitCode: " + exitCode);
             if (exitCode === 0) {
                 activeCommandCallback = function(catOut, catErr, catExit) {
+                    console.log("STT_QML: cat output: " + catOut);
                     insertTextIntoInput(catOut);
                 }
                 executeCommandLine("cat /tmp/kde_assistant_voice.wav.txt");
             } else {
                 sttErrorText = "Local Whisper transcription failed. Code " + exitCode;
+                console.log("STT_QML: " + sttErrorText + ". stderr: " + stderr);
             }
         }
         executeCommandLine(cmd);
@@ -166,18 +183,23 @@ Item {
                       " -F file=@/tmp/kde_assistant_voice.wav" +
                       " -F model=whisper-1" +
                       " -F language=" + lang;
+        console.log("STT_QML: Sending transcription request to cloud...");
 
         activeCommandCallback = function(stdout, stderr, exitCode) {
+            console.log("STT_QML: Cloud response received. exitCode: " + exitCode);
             if (exitCode === 0) {
                 try {
+                    console.log("STT_QML: Cloud response body: " + stdout);
                     var response = JSON.parse(stdout);
                     var text = response.text || "";
                     insertTextIntoInput(text);
                 } catch(e) {
                     sttErrorText = "Cloud JSON parse error: " + e.message;
+                    console.log("STT_QML: Parse error: " + e.message);
                 }
             } else {
                 sttErrorText = "Cloud upload failed. curl exit " + exitCode;
+                console.log("STT_QML: " + sttErrorText + ". stderr: " + stderr);
             }
         }
         executeCommandLine(curlCmd);
@@ -1098,7 +1120,7 @@ Item {
                         visible: (Plasmoid.configuration.sttBackend || "webspeech") !== "disabled"
                         onClicked: toggleRecording()
                         PlasmaComponents.ToolTip {
-                            text: isRecording ? (sttErrorText.length > 0 ? "Error: " + sttErrorText + " (Click to stop)" : "Recording... Click to Stop & Transcribe") : "Voice Typing (Speech-to-Text)"
+                            text: sttErrorText.length > 0 ? "Error: " + sttErrorText : (isRecording ? "Recording... Click to Stop & Transcribe" : "Voice Typing (Speech-to-Text)")
                         }
                     }
 
