@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0
+      http://www.kde.org/standards/kcfg/1.0/kcfg.xsd">
+    <kcfgfile name=""/>
+    <group name="General">
+        <entry name="apiUrl" type="String">
+            <default>http://localhost:11434/v1</default>
+        </entry>
+        <entry name="apiKey" type="String">
+            <default></default>
+        </entry>
+        <entry name="modelName" type="String">
+            <default>gemma412b-120k:latest</default>
+        </entry>
+        <entry name="systemPrompt" type="String">
+            <default>You are a helpful assistant.</default>
+        </entry>
+        <entry name="temperature" type="Double">
+            <default>0.7</default>
+        </entry>
+        <entry name="maxTokens" type="Int">
+            <default>0</default>
+        </entry>
+        <entry name="searchEnabled" type="Bool">
+            <default>true</default>
+        </entry>
+        <entry name="searchProvider" type="String">
+            <default>ddg</default>
+        </entry>
+        <entry name="searchApiKey" type="String">
+            <default></default>
+        </entry>
+        <entry name="searchExtraUrl" type="String">
+            <default></default>
+        </entry>
+        <entry name="grepProvider" type="String">
+            <default>grep</default>
+        </entry>
+        <entry name="grepMaxResults" type="Int">
+            <default>20</default>
+        </entry>
+    </group>
+</kcfg>

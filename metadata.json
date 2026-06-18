@@ -1,0 +1,22 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Hadi"
+            }
+        ],
+        "Category": "Utilities",
+        "Description": "AI chat assistant for KDE Plasma",
+        "EnabledByDefault": true,
+        "Icon": "dialog-messages",
+        "Id": "kdeassistant",
+        "License": "GPL",
+        "Name": "KDE Assistant",
+        "Version": "1.0"
+    },
+    "X-Plasma-API": "declarativeappletscript",
+    "X-Plasma-API-Minimum-Version": "6.0",
+    "X-Plasma-MainScript": "ui/main.qml",
+    "X-Plasma-ConfigModel": "config/config.qml"
+}
