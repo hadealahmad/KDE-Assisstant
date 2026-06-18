@@ -28,22 +28,25 @@ function generateId() {
 function parseCommandTag(text) {
     if (!text) return null;
 
-    var sysMatch = text.match(/\[system:\s*([^\]]+)\]/i);
+    var clean = text.replace(/<thinking>[\s\S]*?<\/thinking>/gi, "").trim();
+    if (!clean) return null;
+
+    var sysMatch = clean.match(/\[system:\s*([^\]]+)\]/i);
     if (sysMatch) {
         return { type: "system", command: sysMatch[1].trim() };
     }
 
-    var grepMatch = text.match(/\[grep:\s*"([^"]+)"\s*"([^"]+)"\]/i) || text.match(/\[grep:\s*([^\s\]]+)\s*([^\s\]]+)\]/i);
+    var grepMatch = clean.match(/\[grep:\s*"([^"]+)"\s*"([^"]+)"\]/i) || clean.match(/\[grep:\s*([^\s\]]+)\s*([^\s\]]+)\]/i);
     if (grepMatch) {
         return { type: "grep", pattern: grepMatch[1], path: grepMatch[2] };
     }
 
-    var settingMatch = text.match(/\[setting:\s*([\s\S]+?)\s+description="([^"]+)"\]/i);
+    var settingMatch = clean.match(/\[setting:\s*([\s\S]+?)\s+description="([^"]+)"\]/i);
     if (settingMatch) {
         return { type: "setting", command: settingMatch[1].trim(), description: settingMatch[2].trim() };
     }
 
-    var rememberMatch = text.match(/\[remember:\s*([\s\S]+?)\s*\]/i);
+    var rememberMatch = clean.match(/\[remember:\s*([\s\S]+?)\s*\]/i);
     if (rememberMatch) {
         return { type: "remember", content: rememberMatch[1].trim() };
     }
@@ -51,7 +54,7 @@ function parseCommandTag(text) {
     // ── Task tags ──────────────────────────────────────────────
 
     // [ADD_TASK: title group="..." priority=high|medium|low due="YYYY-MM-DD" description="..." recurrence=daily|weekly|monthly|yearly]
-    var addTaskMatch = text.match(/\[add_task:\s*([^\]]+)\]/i);
+    var addTaskMatch = clean.match(/\[add_task:\s*([^\]]+)\]/i);
     if (addTaskMatch) {
         var raw = addTaskMatch[1].trim();
         var titleParts = raw.split(/\s+(?:group|priority|due|description|recurrence)=/i);
@@ -73,7 +76,7 @@ function parseCommandTag(text) {
     }
 
     // [TASK: title]  — simple shorthand
-    var taskMatch = text.match(/\[task:\s*([^\]]+)\]/i);
+    var taskMatch = clean.match(/\[task:\s*([^\]]+)\]/i);
     if (taskMatch) {
         return { type: "task", title: taskMatch[1].trim() };
     }
@@ -84,17 +87,23 @@ function parseCommandTag(text) {
 function parseAllCommandTags(text) {
     if (!text) return [];
 
+    var clean = text.replace(/<thinking>[\s\S]*?<\/thinking>/gi, "").trim();
+    if (!clean) return [];
+
     var tags = [];
     var seenTitles = {};
     var addTaskRegex = /\[add_task:\s*([^\]]+)\]/gi;
     var taskRegex = /\[task:\s*([^\]]+)\]/gi;
     var match;
 
-    while ((match = addTaskRegex.exec(text)) !== null) {
+    var placeholderTitles = { "title": true, "task title": true, "task name": true };
+
+    while ((match = addTaskRegex.exec(clean)) !== null) {
         var raw = match[1].trim();
         var titleParts = raw.split(/\s+(?:group|priority|due|description|recurrence)=/i);
         var title = titleParts[0].trim();
         if (!title) continue;
+        if (placeholderTitles[title.toLowerCase()]) continue;
         var group = (raw.match(/\bgroup="([^"]+)"/i) || [])[1] || "";
         var priority = (raw.match(/\bpriority=(\w+)/i) || [])[1] || "none";
         var due = (raw.match(/\bdue="([^"]+)"/i) || [])[1] || "";
@@ -114,7 +123,7 @@ function parseAllCommandTags(text) {
         });
     }
 
-    while ((match = taskRegex.exec(text)) !== null) {
+    while ((match = taskRegex.exec(clean)) !== null) {
         var t = match[1].trim();
         if (!t) continue;
         var key2 = t.toLowerCase();

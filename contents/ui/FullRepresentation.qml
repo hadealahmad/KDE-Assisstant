@@ -367,6 +367,7 @@ Item {
     function handleMultipleTaskCommands(taskTags, assistantIndex, originalText) {
         if (!taskTags || taskTags.length === 0) return;
 
+        var placeholderTitles = { "title": true, "task title": true, "task name": true };
         var createdTasks = [];
         var groupCache = {};
 
@@ -374,6 +375,7 @@ Item {
             var cmdTag = taskTags[i];
             var taskTitle = (cmdTag.title || "").trim();
             if (!taskTitle) continue;
+            if (placeholderTitles[taskTitle.toLowerCase()]) continue;
 
             var taskOpts = { sessionId: currentSessionId };
 
@@ -409,13 +411,22 @@ Item {
 
             createdTasks.push({ title: taskTitle, opts: taskOpts, id: savedTaskId });
 
-            var newMsgIndex = messageModel.count;
-            messageModel.append(TextHelpers.createDefaultMessage("task", ""));
-            messageModel.setProperty(newMsgIndex, "role", "task");
-            messageModel.setProperty(newMsgIndex, "taskTitle", taskTitle);
-            messageModel.setProperty(newMsgIndex, "taskGroupId", taskOpts.groupId || "");
-            messageModel.setProperty(newMsgIndex, "taskPriority", taskOpts.priority || 0);
-            messageModel.setProperty(newMsgIndex, "taskDueDate", taskOpts.dueDate ? new Date(taskOpts.dueDate).toLocaleDateString() : "");
+            if (i === 0 && assistantIndex >= 0 && assistantIndex < messageModel.count) {
+                messageModel.setProperty(assistantIndex, "role", "task");
+                messageModel.setProperty(assistantIndex, "content", "");
+                messageModel.setProperty(assistantIndex, "taskTitle", taskTitle);
+                messageModel.setProperty(assistantIndex, "taskGroupId", taskOpts.groupId || "");
+                messageModel.setProperty(assistantIndex, "taskPriority", taskOpts.priority || 0);
+                messageModel.setProperty(assistantIndex, "taskDueDate", taskOpts.dueDate ? new Date(taskOpts.dueDate).toLocaleDateString() : "");
+            } else {
+                var newMsgIndex = messageModel.count;
+                messageModel.append(TextHelpers.createDefaultMessage("task", ""));
+                messageModel.setProperty(newMsgIndex, "role", "task");
+                messageModel.setProperty(newMsgIndex, "taskTitle", taskTitle);
+                messageModel.setProperty(newMsgIndex, "taskGroupId", taskOpts.groupId || "");
+                messageModel.setProperty(newMsgIndex, "taskPriority", taskOpts.priority || 0);
+                messageModel.setProperty(newMsgIndex, "taskDueDate", taskOpts.dueDate ? new Date(taskOpts.dueDate).toLocaleDateString() : "");
+            }
 
             Db.saveMessage(db, currentSessionId, "task", JSON.stringify({
                 taskId: savedTaskId,
@@ -544,21 +555,24 @@ Item {
             messageModel.setProperty(assistantIndex, "approvalResult", "");
             chatList.positionViewAtEnd();
         } else if (cmdTag.type === "remember") {
+            var memContent = (cmdTag.content || "").trim();
+            if (!memContent) return;
+
             // Save the memory to DB immediately — no confirmation needed
-            var memId = Db.saveMemory(db, cmdTag.content, currentSessionId);
+            var memId = Db.saveMemory(db, memContent, currentSessionId);
             loadMemoryList();
 
             // Convert the assistant message to a memory card in the chat
             messageModel.setProperty(assistantIndex, "role", "memory");
             messageModel.setProperty(assistantIndex, "content", "");
-            messageModel.setProperty(assistantIndex, "memoryContent", cmdTag.content);
+            messageModel.setProperty(assistantIndex, "memoryContent", memContent);
             messageModel.setProperty(assistantIndex, "memoryId", memId);
             chatList.positionViewAtEnd();
 
             // Persist the memory card in the DB so it survives reload
             Db.saveMessage(db, currentSessionId, "memory", JSON.stringify({
                 id: memId,
-                content: cmdTag.content
+                content: memContent
             }));
             loadSessionList();
 
@@ -566,7 +580,7 @@ Item {
             var updatedMessages = buildMessageArray();
             updatedMessages.push({
                 role: "system",
-                content: "Memory saved: \"" + cmdTag.content + "\". Continue the conversation naturally."
+                content: "Memory saved: \"" + memContent + "\". Continue the conversation naturally."
             });
             resumeStreaming(updatedMessages);
         } else if (cmdTag.type === "task" || cmdTag.type === "add_task") {
@@ -599,6 +613,8 @@ Item {
 
             var taskTitle = (cmdTag.title || "").trim();
             if (!taskTitle) return;
+            var _pt = { "title": true, "task title": true, "task name": true };
+            if (_pt[taskTitle.toLowerCase()]) return;
             var savedTaskId = Db.saveTask(db, taskTitle, taskOpts);
 
             // Build confirmation details
