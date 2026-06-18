@@ -32,6 +32,9 @@ Item {
     property bool historyViewActive: false
     property bool memoriesViewActive: false
     property bool tasksViewActive: false
+    property real contextUsagePercent: 0
+    property int contextUsedChars: 0
+    property int contextMaxChars: Plasmoid.configuration.contextWindowSize || 128000
 
     // ── Pending attachments ───────────────────────────────────
     property var pendingAttachments: []
@@ -687,8 +690,12 @@ Item {
                 messageModel.setProperty(assistantIndex, "content", TextHelpers.preprocessMarkdown(accumulated));
             }
             chatList.positionViewAtEnd();
-        }, function (finalText) {
+        }, function (finalText, usage) {
             isStreaming = false;
+            if (usage && usage.total_tokens) {
+                contextUsedChars = usage.total_tokens;
+                contextUsagePercent = Math.min(100, Math.round((usage.total_tokens / contextMaxChars) * 100));
+            }
             var allTaskTags = TextHelpers.parseAllCommandTags(finalText);
             if (allTaskTags.length > 0) {
                 var filteredTags = [];
@@ -762,6 +769,40 @@ Item {
             prayerLongitude: Plasmoid.configuration.prayerLongitude,
             prayerMethod: Plasmoid.configuration.prayerMethod
         };
+    }
+
+    function updateContextUsage() {
+        var config = getApiConfig();
+        var totalChars = 0;
+
+        var basePrompt = config.systemPrompt && config.systemPrompt.trim() !== ""
+            ? config.systemPrompt.trim()
+            : "You are a helpful assistant.";
+        totalChars += basePrompt.length;
+
+        if (config.userNotes && config.userNotes.trim() !== "") {
+            totalChars += config.userNotes.trim().length;
+        }
+        if (config.memories) {
+            for (var i = 0; i < config.memories.length; i++) {
+                totalChars += config.memories[i].length;
+            }
+        }
+
+        var msgs = buildMessageArray();
+        for (var j = 0; j < msgs.length; j++) {
+            var c = msgs[j].content;
+            if (typeof c === "string") {
+                totalChars += c.length;
+            } else if (Array.isArray(c)) {
+                for (var k = 0; k < c.length; k++) {
+                    if (c[k].text) totalChars += c[k].text.length;
+                }
+            }
+        }
+
+        contextUsedChars = totalChars;
+        contextUsagePercent = Math.min(100, Math.round((totalChars / contextMaxChars) * 100));
     }
 
     function approveSetting(command, description, assistantIndex) {
@@ -1136,6 +1177,7 @@ Item {
         });
         historyViewActive = false;
         tasksViewActive = false;
+        Qt.callLater(updateContextUsage);
     }
 
     function buildMessageArray() {
@@ -1246,6 +1288,7 @@ Item {
         userMsg.attachmentsJson = attachmentsJson;
         messageModel.append(userMsg);
         Db.saveMessage(db, currentSessionId, "user", text || "");
+        Qt.callLater(updateContextUsage);
 
         // Auto-title from first user message
         if (currentSessionTitle === "New Chat") {
@@ -1272,9 +1315,13 @@ Item {
                 messageModel.setProperty(assistantIndex, "content", TextHelpers.preprocessMarkdown(accumulated));
             }
             chatList.positionViewAtEnd();
-        }, function (finalText) {
+        }, function (finalText, usage) {
             // onComplete
             isStreaming = false;
+            if (usage && usage.total_tokens) {
+                contextUsedChars = usage.total_tokens;
+                contextUsagePercent = Math.min(100, Math.round((usage.total_tokens / contextMaxChars) * 100));
+            }
             var allTaskTags = TextHelpers.parseAllCommandTags(finalText);
             if (allTaskTags.length > 0) {
                 var filteredTags = [];
@@ -1355,13 +1402,34 @@ Item {
             }
 
             // Session model name (below header)
-            Controls.Label {
+            RowLayout {
                 Layout.fillWidth: true
                 Layout.leftMargin: Kirigami.Units.smallSpacing * 2
-                text: Plasmoid.configuration.modelName || "No model set"
-                font.pointSize: Kirigami.Theme.smallFont.pointSize
-                color: Kirigami.Theme.disabledTextColor
-                height: visible ? implicitHeight : 0
+                Layout.rightMargin: Kirigami.Units.smallSpacing * 2
+                spacing: Kirigami.Units.smallSpacing
+
+                Controls.Label {
+                    text: Plasmoid.configuration.modelName || "No model set"
+                    font.pointSize: Kirigami.Theme.smallFont.pointSize
+                    color: Kirigami.Theme.disabledTextColor
+                    elide: Text.ElideRight
+                    Layout.fillWidth: true
+                }
+
+                Controls.Label {
+                    text: {
+                        var used = contextUsedChars;
+                        var total = contextMaxChars;
+                        if (used >= 1000) {
+                            return (used / 1000).toFixed(1) + "k/" + (total / 1000).toFixed(0) + "k (" + contextUsagePercent + "%)";
+                        }
+                        return used + "/" + total + " (" + contextUsagePercent + "%)";
+                    }
+                    font.pointSize: Kirigami.Theme.smallFont.pointSize
+                    color: contextUsagePercent > 80 ? Kirigami.Theme.negativeTextColor
+                         : contextUsagePercent > 50 ? Kirigami.Theme.neutralTextColor
+                         : Kirigami.Theme.disabledTextColor
+                }
             }
 
             Kirigami.Separator {

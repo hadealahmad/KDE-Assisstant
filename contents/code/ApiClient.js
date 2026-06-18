@@ -213,6 +213,7 @@ function sendMessage(messages, config, onStreaming, onComplete, onError) {
         model: config.modelName || "llama3",
         messages: fullMessages,
         stream: true,
+        stream_options: { include_usage: true },
         temperature: config.searchEnabled ? 0.0 : (typeof config.temperature === "number" ? config.temperature : 0.7)
     };
     if (typeof config.maxTokens === "number" && config.maxTokens > 0) {
@@ -234,6 +235,7 @@ function sendMessage(messages, config, onStreaming, onComplete, onError) {
     var accumulatedText = "";
     var accumulatedReasoning = "";
     var searchExecuted = false;
+    var usageData = null;
 
     // Track search depth limits
     var currentSearchDepth = typeof config.searchDepth === "number" ? config.searchDepth : 3;
@@ -276,6 +278,10 @@ function sendMessage(messages, config, onStreaming, onComplete, onError) {
                             if (typeof onError === "function") onError(errMsg);
                             _activeXhr = null;
                             return;
+                        }
+
+                        if (parsed.usage) {
+                            usageData = parsed.usage;
                         }
 
                         var choices = parsed.choices;
@@ -496,7 +502,7 @@ function sendMessage(messages, config, onStreaming, onComplete, onError) {
             }
             if (typeof onComplete === "function") {
                 var finalDisplayText = TextHelpers.formatThinking(accumulatedReasoning) + accumulatedText;
-                onComplete(finalDisplayText);
+                onComplete(finalDisplayText, usageData);
             }
         }
     };

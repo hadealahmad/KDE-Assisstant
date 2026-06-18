@@ -23,6 +23,9 @@
         <entry name="maxTokens" type="Int">
             <default>0</default>
         </entry>
+        <entry name="contextWindowSize" type="Int">
+            <default>128000</default>
+        </entry>
         <entry name="searchEnabled" type="Bool">
             <default>true</default>
         </entry>

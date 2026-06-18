@@ -383,6 +383,24 @@ QQC2.ScrollView {
             onValueModified: plasmoid.configuration.maxTokens = value
         }
 
+        QQC2.SpinBox {
+            id: contextWindowSize
+            Kirigami.FormData.label: i18n("Context Window Size (tokens):")
+            from: 1000
+            to: 2000000
+            stepSize: 1000
+            Component.onCompleted: value = plasmoid.configuration.contextWindowSize || 128000
+            onValueModified: plasmoid.configuration.contextWindowSize = value
+        }
+
+        QQC2.Label {
+            text: i18n("Set this to match your model's context window (e.g. 4096, 8192, 32768, 128000).")
+            color: Kirigami.Theme.disabledTextColor
+            font.pointSize: Kirigami.Theme.smallFont.pointSize
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+        }
+
         // ── SECTION: System Prompt ───────────────────────────────
 
         Item {
