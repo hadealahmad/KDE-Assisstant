@@ -41,5 +41,8 @@
         <entry name="grepMaxResults" type="Int">
             <default>20</default>
         </entry>
+        <entry name="apiProvider" type="String">
+            <default>ollama</default>
+        </entry>
     </group>
 </kcfg>
