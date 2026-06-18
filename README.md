@@ -15,6 +15,22 @@ KDE Assistant is a premium, feature-rich AI chat plasmoid designed for the **KDE
   - **Interactive Memories:** Instruct the AI to *"remember that my projects are stored in `/run/media/hadi/SSD2/Coding`"*. The assistant parses declarative memories using a `[REMEMBER: ...]` instruction, saves them to a local database, and displays them as active cards.
   - **Memory Panel:** View, delete individual, or clear all saved memories using the dedicated 🧠 button in the header.
 
+- **📅 Date/Time & Hijri Calendar Context:**
+  - Automatically injects the current Gregorian date, time, and timezone into every LLM system prompt so the AI always knows "now."
+  - Includes a local **Hijri (Umm al-Qura)** calendar conversion — the AI can reference both Gregorian and Islamic dates without external APIs.
+
+- **🕌 Islamic Prayer Times:**
+  - Configure your latitude, longitude, and calculation method (MWL, ISNA, Umm Al-Qura, Egyptian, Tehran, and more) in the settings panel.
+  - The AI uses the AlAdhan API to fetch accurate daily or monthly prayer timetables on request.
+  - When location is not configured, the AI will ask the user for their city or coordinates.
+
+- **✅ Task Management:**
+  - Full task system with **groups**, **priorities** (None/Low/Medium/High), **due dates**, **recurrence** (Daily/Weekly/Monthly/Yearly), and **subtasks**.
+  - Create tasks manually via the dedicated Tasks page, or let the AI create them conversationally using `[TASK: title]` or `[ADD_TASK: title group="..." priority=high ...]` tags.
+  - **Multiple tasks in one message:** The AI can output several task tags at once — related tasks sharing the same group name are automatically grouped together.
+  - Tasks display as interactive cards in the chat with checkbox, priority badge, due date, and expandable subtask list.
+  - Filter tasks by group, mark complete, edit, or delete from the Tasks page.
+
 - **🛠️ Integrated Tool Actions & Execution (with Safe User-in-the-Loop Approval):**
   - Allows the LLM to inspect files, search code, and execute terminal commands.
   - Actions display clean visual command blocks with code highlighting, execution status, stdout/stderr, and **Approve / Reject** buttons to keep you in control of your system.
@@ -39,7 +55,7 @@ KDE Assistant is a premium, feature-rich AI chat plasmoid designed for the **KDE
   - Pinning disables automatic auto-close/blur (`hideOnWindowDeactivate`) and applies `Qt.WindowStaysOnTopHint` to keep the assistant open and floating above other windows.
 
 - **🗄️ Local History Persistence:**
-  - All chat sessions, messages, and memories are saved locally using QML SQLite `LocalStorage`.
+  - All chat sessions, messages, memories, and tasks are saved locally using QML SQLite `LocalStorage`.
 
 ---
 
@@ -51,19 +67,24 @@ KDE Assistant is a premium, feature-rich AI chat plasmoid designed for the **KDE
 │   ├── code/
 │   │   ├── ApiClient.js          # API communications, streaming parser, and memory injector
 │   │   ├── AttachmentHelpers.js  # File attachment utilities, MIME detection, and validation
-│   │   ├── Database.js           # SQLite database schema, session, and memory management
+│   │   ├── Database.js           # SQLite database schema, sessions, messages, memories, tasks, and groups
+│   │   ├── PrayerTimes.js        # Hijri calendar calculation, Gregorian date/time context, and prayer times
 │   │   ├── Search.js             # Web and local grep/ripgrep search integration
 │   │   ├── TextHelpers.js        # Markdown parsing, command extraction, and rendering formatting
 │   │   └── whisper_daemon.py     # DBus daemon for real-time Whisper speech-to-text streaming
 │   ├── config/
 │   │   ├── config.qml            # Config UI routing definitions
-│   │   └── main.xml              # Config key schema definitions (API, search, STT settings)
+│   │   └── main.xml              # Config key schema definitions (API, search, STT, prayer times settings)
 │   └── ui/
-│       ├── ChatMessage.qml       # Visual delegates for message cards, attachments, and memories
+│       ├── AddEditGroupDialog.qml  # Dialog for creating/editing task groups
+│       ├── AddEditTaskDialog.qml   # Dialog for creating/editing tasks
+│       ├── ChatMessage.qml       # Visual delegates for message cards, attachments, memories, and tasks
 │       ├── CollapsibleBlock.qml  # Reusable collapsible/expandable content block component
-│       ├── ConfigGeneral.qml     # Configuration UI (API, model, search, voice, memory notes)
-│       ├── FullRepresentation.qml # Main chat window, sidebar, memory page, and header controls
+│       ├── ConfigGeneral.qml     # Configuration UI (API, model, search, voice, memory notes, prayer times)
+│       ├── FullRepresentation.qml # Main chat window, sidebar, memory page, tasks page, and header controls
 │       ├── PageHeader.qml        # Reusable page header with back navigation and action buttons
+│       ├── TaskItem.qml          # Individual task card with checkbox, priority, due date, subtasks
+│       ├── TasksPage.qml         # Full task management page with groups, filters, and task list
 │       └── main.qml              # Root PlasmoidItem handling representations, window flags, and focus
 ├── metadata.json                 # Applet metadata, entry point, and minimum Plasma 6 version
 └── README.md

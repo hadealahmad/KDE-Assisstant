@@ -31,10 +31,12 @@ Item {
     property bool isStreaming: false
     property bool historyViewActive: false
     property bool memoriesViewActive: false
+    property bool tasksViewActive: false
 
     // ── Pending attachments ───────────────────────────────────
     property var pendingAttachments: []
     property string attachmentErrorText: ""
+    property var recentlyCreatedTaskTitles: []
 
     property int _originalFlags: 0
 
@@ -362,6 +364,94 @@ Item {
         });
     }
 
+    function handleMultipleTaskCommands(taskTags, assistantIndex, originalText) {
+        if (!taskTags || taskTags.length === 0) return;
+
+        var createdTasks = [];
+        var groupCache = {};
+
+        for (var i = 0; i < taskTags.length; i++) {
+            var cmdTag = taskTags[i];
+            var taskTitle = (cmdTag.title || "").trim();
+            if (!taskTitle) continue;
+
+            var taskOpts = { sessionId: currentSessionId };
+
+            if (cmdTag.type === "add_task") {
+                if (cmdTag.group && cmdTag.group.trim() !== "") {
+                    var groupName = cmdTag.group.trim();
+                    if (groupCache.hasOwnProperty(groupName)) {
+                        taskOpts.groupId = groupCache[groupName];
+                    } else {
+                        var existingGroup = Db.findTaskGroupByName(db, groupName);
+                        if (existingGroup) {
+                            taskOpts.groupId = existingGroup.id;
+                        } else {
+                            var newGroupId = Db.createTaskGroup(db, groupName);
+                            taskOpts.groupId = newGroupId;
+                        }
+                        groupCache[groupName] = taskOpts.groupId;
+                    }
+                }
+                taskOpts.description = cmdTag.description || "";
+                taskOpts.priority = cmdTag.priority || 0;
+                taskOpts.recurrence = cmdTag.recurrence || "";
+                if (cmdTag.due && cmdTag.due.trim() !== "") {
+                    var dueDate = new Date(cmdTag.due);
+                    if (!isNaN(dueDate.getTime())) {
+                        taskOpts.dueDate = dueDate.getTime();
+                    }
+                }
+            }
+
+            var savedTaskId = Db.saveTask(db, taskTitle, taskOpts);
+            if (!savedTaskId) continue;
+
+            createdTasks.push({ title: taskTitle, opts: taskOpts, id: savedTaskId });
+
+            var newMsgIndex = messageModel.count;
+            messageModel.append(TextHelpers.createDefaultMessage("task", ""));
+            messageModel.setProperty(newMsgIndex, "role", "task");
+            messageModel.setProperty(newMsgIndex, "taskTitle", taskTitle);
+            messageModel.setProperty(newMsgIndex, "taskGroupId", taskOpts.groupId || "");
+            messageModel.setProperty(newMsgIndex, "taskPriority", taskOpts.priority || 0);
+            messageModel.setProperty(newMsgIndex, "taskDueDate", taskOpts.dueDate ? new Date(taskOpts.dueDate).toLocaleDateString() : "");
+
+            Db.saveMessage(db, currentSessionId, "task", JSON.stringify({
+                taskId: savedTaskId,
+                title: taskTitle,
+                groupId: taskOpts.groupId || "",
+                priority: taskOpts.priority || 0,
+                dueDate: taskOpts.dueDate || ""
+            }));
+        }
+
+        chatList.positionViewAtEnd();
+        loadSessionList();
+        reloadTaskList();
+
+        for (var k = 0; k < createdTasks.length; k++) {
+            var lowerTitle = createdTasks[k].title.trim().toLowerCase();
+            if (lowerTitle && recentlyCreatedTaskTitles.indexOf(lowerTitle) === -1) {
+                recentlyCreatedTaskTitles.push(lowerTitle);
+            }
+        }
+
+        if (createdTasks.length > 0) {
+            var summaryParts = [];
+            for (var j = 0; j < createdTasks.length; j++) {
+                summaryParts.push("\"" + createdTasks[j].title + "\"");
+            }
+            var summary = summaryParts.join(", ");
+            var updatedMessages = buildMessageArray();
+            updatedMessages.push({
+                role: "system",
+                content: "Tasks created: " + summary + ". Do NOT output any more task tags. Continue the conversation naturally."
+            });
+            resumeStreaming(updatedMessages);
+        }
+    }
+
     function handleParsedCommand(cmdTag, assistantIndex) {
         activeAssistantIndex = assistantIndex;
 
@@ -479,6 +569,92 @@ Item {
                 content: "Memory saved: \"" + cmdTag.content + "\". Continue the conversation naturally."
             });
             resumeStreaming(updatedMessages);
+        } else if (cmdTag.type === "task" || cmdTag.type === "add_task") {
+            // ── Task creation from LLM ──────────────────────────
+            var taskOpts = {
+                sessionId: currentSessionId
+            };
+
+            if (cmdTag.type === "add_task") {
+                // Resolve group name to group_id
+                if (cmdTag.group && cmdTag.group.trim() !== "") {
+                    var existingGroup = Db.findTaskGroupByName(db, cmdTag.group);
+                    if (existingGroup) {
+                        taskOpts.groupId = existingGroup.id;
+                    } else {
+                        var newGroupId = Db.createTaskGroup(db, cmdTag.group);
+                        taskOpts.groupId = newGroupId;
+                    }
+                }
+                taskOpts.description = cmdTag.description || "";
+                taskOpts.priority = cmdTag.priority || 0;
+                taskOpts.recurrence = cmdTag.recurrence || "";
+                if (cmdTag.due && cmdTag.due.trim() !== "") {
+                    var dueDate = new Date(cmdTag.due);
+                    if (!isNaN(dueDate.getTime())) {
+                        taskOpts.dueDate = dueDate.getTime();
+                    }
+                }
+            }
+
+            var taskTitle = (cmdTag.title || "").trim();
+            if (!taskTitle) return;
+            var savedTaskId = Db.saveTask(db, taskTitle, taskOpts);
+
+            // Build confirmation details
+            var taskDetails = "**" + taskTitle + "**";
+            if (taskOpts.groupId) {
+                var grpName = "";
+                var currentGroups = Db.loadTaskGroups(db);
+                for (var gi = 0; gi < currentGroups.length; gi++) {
+                    if (currentGroups[gi].id === taskOpts.groupId) { grpName = currentGroups[gi].name; break; }
+                }
+                if (grpName) taskDetails += "\nGroup: " + grpName;
+            }
+            if (taskOpts.priority && taskOpts.priority > 0) {
+                var pLabel = taskOpts.priority === 3 ? "High" : taskOpts.priority === 2 ? "Medium" : "Low";
+                taskDetails += "\nPriority: " + pLabel;
+            }
+            if (taskOpts.dueDate) {
+                var dd = new Date(taskOpts.dueDate);
+                taskDetails += "\nDue: " + dd.toLocaleDateString();
+            }
+            if (taskOpts.description) {
+                taskDetails += "\n" + taskOpts.description;
+            }
+
+            // Convert assistant message to task card
+            messageModel.setProperty(assistantIndex, "role", "task");
+            messageModel.setProperty(assistantIndex, "content", "");
+            messageModel.setProperty(assistantIndex, "taskTitle", taskTitle);
+            messageModel.setProperty(assistantIndex, "taskGroupId", taskOpts.groupId || "");
+            messageModel.setProperty(assistantIndex, "taskPriority", taskOpts.priority || 0);
+            messageModel.setProperty(assistantIndex, "taskDueDate", taskOpts.dueDate ? new Date(taskOpts.dueDate).toLocaleDateString() : "");
+            chatList.positionViewAtEnd();
+
+            // Save task card in DB so it survives reload
+            Db.saveMessage(db, currentSessionId, "task", JSON.stringify({
+                taskId: savedTaskId,
+                title: taskTitle,
+                groupId: taskOpts.groupId || "",
+                priority: taskOpts.priority || 0,
+                dueDate: taskOpts.dueDate || ""
+            }));
+            loadSessionList();
+            reloadTaskList();
+
+            var lowerTaskTitle = taskTitle.trim().toLowerCase();
+            if (lowerTaskTitle && recentlyCreatedTaskTitles.indexOf(lowerTaskTitle) === -1) {
+                recentlyCreatedTaskTitles.push(lowerTaskTitle);
+            }
+
+            // Resume so LLM can acknowledge
+            var updatedMessages = buildMessageArray();
+            updatedMessages.push({
+                role: "system",
+                content: "Task created: \"" + taskTitle + "\". Do NOT output any more task tags. Continue the conversation naturally."
+            });
+            resumeStreaming(updatedMessages);
         }
     }
 
@@ -497,8 +673,33 @@ Item {
             chatList.positionViewAtEnd();
         }, function (finalText) {
             isStreaming = false;
+            var allTaskTags = TextHelpers.parseAllCommandTags(finalText);
+            if (allTaskTags.length > 0) {
+                var filteredTags = [];
+                for (var i = 0; i < allTaskTags.length; i++) {
+                    var t = (allTaskTags[i].title || "").trim().toLowerCase();
+                    if (t && recentlyCreatedTaskTitles.indexOf(t) === -1) {
+                        filteredTags.push(allTaskTags[i]);
+                    }
+                }
+                if (filteredTags.length > 0) {
+                    handleMultipleTaskCommands(filteredTags, assistantIndex, finalText);
+                    return;
+                }
+            }
             var cmdTag = TextHelpers.parseCommandTag(finalText);
             if (cmdTag) {
+                if (cmdTag.type === "task" || cmdTag.type === "add_task") {
+                    var tt = (cmdTag.title || "").trim().toLowerCase();
+                    if (tt && recentlyCreatedTaskTitles.indexOf(tt) !== -1) {
+                        if (assistantIndex < messageModel.count) {
+                            messageModel.setProperty(assistantIndex, "content", "");
+                        }
+                        chatList.positionViewAtEnd();
+                        loadSessionList();
+                        return;
+                    }
+                }
                 handleParsedCommand(cmdTag, assistantIndex);
                 return;
             }
@@ -735,6 +936,12 @@ Item {
         }
     }
 
+    function reloadTaskList() {
+        if (tasksPage) {
+            tasksPage.reload();
+        }
+    }
+
     function deleteMemory(memId, messageIndex) {
         Db.deleteMemory(db, memId);
         loadMemoryList();
@@ -839,11 +1046,13 @@ Item {
         messageModel.clear();
         pendingAttachments = [];
         pendingAttachmentsChanged();
+        recentlyCreatedTaskTitles = [];
         currentSessionId = TextHelpers.generateId();
         currentSessionTitle = "New Chat";
         Db.createSession(db, currentSessionId, currentSessionTitle);
         loadSessionList();
         historyViewActive = false;
+        tasksViewActive = false;
     }
 
     function loadSession(sessionId, sessionTitle) {
@@ -851,6 +1060,7 @@ Item {
         messageModel.clear();
         pendingAttachments = [];
         pendingAttachmentsChanged();
+        recentlyCreatedTaskTitles = [];
         currentSessionId = sessionId;
         currentSessionTitle = sessionTitle;
         var msgs = Db.loadMessages(db, sessionId);
@@ -909,6 +1119,7 @@ Item {
             chatList.positionViewAtEnd();
         });
         historyViewActive = false;
+        tasksViewActive = false;
     }
 
     function buildMessageArray() {
@@ -1048,8 +1259,33 @@ Item {
         }, function (finalText) {
             // onComplete
             isStreaming = false;
+            var allTaskTags = TextHelpers.parseAllCommandTags(finalText);
+            if (allTaskTags.length > 0) {
+                var filteredTags = [];
+                for (var i = 0; i < allTaskTags.length; i++) {
+                    var t = (allTaskTags[i].title || "").trim().toLowerCase();
+                    if (t && recentlyCreatedTaskTitles.indexOf(t) === -1) {
+                        filteredTags.push(allTaskTags[i]);
+                    }
+                }
+                if (filteredTags.length > 0) {
+                    handleMultipleTaskCommands(filteredTags, assistantIndex, finalText);
+                    return;
+                }
+            }
             var cmdTag = TextHelpers.parseCommandTag(finalText);
             if (cmdTag) {
+                if (cmdTag.type === "task" || cmdTag.type === "add_task") {
+                    var tt = (cmdTag.title || "").trim().toLowerCase();
+                    if (tt && recentlyCreatedTaskTitles.indexOf(tt) !== -1) {
+                        if (assistantIndex < messageModel.count) {
+                            messageModel.setProperty(assistantIndex, "content", "");
+                        }
+                        chatList.positionViewAtEnd();
+                        loadSessionList();
+                        return;
+                    }
+                }
                 handleParsedCommand(cmdTag, assistantIndex);
                 return;
             }
@@ -1076,7 +1312,7 @@ Item {
     StackLayout {
         id: mainStack
         anchors.fill: parent
-        currentIndex: memoriesViewActive ? 2 : historyViewActive ? 1 : 0
+        currentIndex: tasksViewActive ? 3 : memoriesViewActive ? 2 : historyViewActive ? 1 : 0
 
         // PAGE 0: Chat Interface
         ColumnLayout {
@@ -1091,9 +1327,11 @@ Item {
                     { icon: "chronometer", tooltip: "Chat History", onClicked: function() { historyViewActive = true; } },
                     { icon: "list-add", tooltip: "New Chat", onClicked: function() { startNewSession(); } },
                     { icon: "edit-copy", tooltip: "Copy Conversation", onClicked: function() { fullRepRoot.copyConversationToClipboard(); } },
+                    { icon: "view-task", tooltip: "Tasks", onClicked: function() { tasksViewActive = true; historyViewActive = false; memoriesViewActive = false; } },
                     { icon: "view-list-text", tooltip: "Memories (" + memoryModel.count + ")", onClicked: function() {
                         memoriesViewActive = true;
                         historyViewActive = false;
+                        tasksViewActive = false;
                     }},
                     { icon: "configure", tooltip: "Settings", onClicked: function() { Plasmoid.internalAction("configure").trigger(); } },
                     { icon: root.keepOpen ? "window-unpin" : "window-pin", tooltip: root.keepOpen ? "Unpin (auto-close)" : "Pin (keep open)", onClicked: function() { root.keepOpen = !root.keepOpen; } }
@@ -1164,6 +1402,10 @@ Item {
                     required property string memoryContent
                     required property string memoryId
                     required property string attachmentsJson
+                    required property string taskTitle
+                    required property string taskGroupId
+                    required property int taskPriority
+                    required property string taskDueDate
 
                     width: chatList.width - chatList.leftMargin - chatList.rightMargin - Kirigami.Units.gridUnit * 1.5
                     height: messageCard.implicitHeight
@@ -1186,6 +1428,11 @@ Item {
                         memoryContent: delegateRoot.memoryContent
                         memoryId: delegateRoot.memoryId
                         attachmentsJson: delegateRoot.attachmentsJson
+
+                        taskTitle: delegateRoot.taskTitle
+                        taskGroupId: delegateRoot.taskGroupId
+                        taskPriority: delegateRoot.taskPriority
+                        taskDueDate: delegateRoot.taskDueDate
                     }
                 }
             }
@@ -1585,6 +1832,14 @@ Item {
                     }
                 }
             }
+        }
+
+        // PAGE 3: Tasks View
+        TasksPage {
+            id: tasksPage
+            db: fullRepRoot.db
+            currentSessionId: fullRepRoot.currentSessionId
+            onBackClicked: tasksViewActive = false
         }
     }
 

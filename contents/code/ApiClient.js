@@ -164,6 +164,23 @@ function sendMessage(messages, config, onStreaming, onComplete, onError) {
         config.prayerMethod
     );
 
+    // ── Inject task management instructions ──
+    baseSystemPrompt += "\n## Task Management\n" +
+        "You can create tasks for the user. Use the task tool tags to save tasks to their task list.\n\n" +
+        "Simple format: `[TASK: title]`\n" +
+        "Full format: `[ADD_TASK: title group=\"Group Name\" priority=high|medium|low due=\"YYYY-MM-DD\" description=\"Details\" recurrence=daily|weekly|monthly|yearly]`\n\n" +
+        "Examples:\n" +
+        "  `[TASK: Buy groceries]`\n" +
+        "  `[ADD_TASK: Review PR #42 group=\"Work\" priority=high due=\"2026-06-20\" description=\"Check security and tests\"]`\n" +
+        "  `[ADD_TASK: Weekly team sync group=\"Work\" recurrence=weekly]`\n\n" +
+        "When the user asks you to create multiple tasks, you can output multiple task tags in a single response. " +
+        "Group related tasks together by using the same group name — the system will reuse existing groups automatically.\n" +
+        "Multiple task example:\n" +
+        "  `[ADD_TASK: Buy groceries group=\"Shopping\" priority=medium]\n  [ADD_TASK: Buy cleaning supplies group=\"Shopping\" priority=low]\n  [ADD_TASK: Call dentist group=\"Personal\" priority=high]`\n\n" +
+        "When the user asks you to create a task, track something, set a reminder, or mentions something they need to do, use this tool.\n" +
+        "If the user doesn't specify a group, you can omit it. If they don't specify priority, omit it.\n" +
+        "You can also suggest tasks when appropriate — for example, if the user mentions a deadline or something they need to remember to do.";
+
     // ── Inject user notes (Approach 1 — manual notes) ──────────
     if (config.userNotes && config.userNotes.trim() !== "") {
         baseSystemPrompt = "## Personal Context\n" + config.userNotes.trim() + "\n\n" + baseSystemPrompt;

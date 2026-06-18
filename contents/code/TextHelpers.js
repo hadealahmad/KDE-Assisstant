@@ -48,7 +48,82 @@ function parseCommandTag(text) {
         return { type: "remember", content: rememberMatch[1].trim() };
     }
 
+    // ── Task tags ──────────────────────────────────────────────
+
+    // [ADD_TASK: title group="..." priority=high|medium|low due="YYYY-MM-DD" description="..." recurrence=daily|weekly|monthly|yearly]
+    var addTaskMatch = text.match(/\[add_task:\s*([^\]]+)\]/i);
+    if (addTaskMatch) {
+        var raw = addTaskMatch[1].trim();
+        var titleParts = raw.split(/\s+(?:group|priority|due|description|recurrence)=/i);
+        var title = titleParts[0].trim();
+        var group = (raw.match(/\bgroup="([^"]+)"/i) || [])[1] || "";
+        var priority = (raw.match(/\bpriority=(\w+)/i) || [])[1] || "none";
+        var due = (raw.match(/\bdue="([^"]+)"/i) || [])[1] || "";
+        var desc = (raw.match(/\bdescription="([^"]+)"/i) || [])[1] || "";
+        var recur = (raw.match(/\brecurrence=(\w+)/i) || [])[1] || "";
+        return {
+            type: "add_task",
+            title: title,
+            group: group,
+            priority: priority,
+            due: due,
+            description: desc,
+            recurrence: recur
+        };
+    }
+
+    // [TASK: title]  — simple shorthand
+    var taskMatch = text.match(/\[task:\s*([^\]]+)\]/i);
+    if (taskMatch) {
+        return { type: "task", title: taskMatch[1].trim() };
+    }
+
     return null;
+}
+
+function parseAllCommandTags(text) {
+    if (!text) return [];
+
+    var tags = [];
+    var seenTitles = {};
+    var addTaskRegex = /\[add_task:\s*([^\]]+)\]/gi;
+    var taskRegex = /\[task:\s*([^\]]+)\]/gi;
+    var match;
+
+    while ((match = addTaskRegex.exec(text)) !== null) {
+        var raw = match[1].trim();
+        var titleParts = raw.split(/\s+(?:group|priority|due|description|recurrence)=/i);
+        var title = titleParts[0].trim();
+        if (!title) continue;
+        var group = (raw.match(/\bgroup="([^"]+)"/i) || [])[1] || "";
+        var priority = (raw.match(/\bpriority=(\w+)/i) || [])[1] || "none";
+        var due = (raw.match(/\bdue="([^"]+)"/i) || [])[1] || "";
+        var desc = (raw.match(/\bdescription="([^"]+)"/i) || [])[1] || "";
+        var recur = (raw.match(/\brecurrence=(\w+)/i) || [])[1] || "";
+        var key = title.toLowerCase();
+        if (seenTitles[key]) continue;
+        seenTitles[key] = true;
+        tags.push({
+            type: "add_task",
+            title: title,
+            group: group,
+            priority: priority,
+            due: due,
+            description: desc,
+            recurrence: recur
+        });
+    }
+
+    while ((match = taskRegex.exec(text)) !== null) {
+        var t = match[1].trim();
+        if (!t) continue;
+        var key2 = t.toLowerCase();
+        if (seenTitles[key2]) continue;
+        seenTitles[key2] = true;
+        tags.push({ type: "task", title: t });
+    }
+
+    return tags;
 }
 
 function escapeShellArg(arg) {
@@ -70,6 +145,11 @@ function createDefaultMessage(role, content) {
         commandStatus: "",
         isMemory: false,
         memoryContent: "",
-        memoryId: ""
+        memoryId: "",
+        isTask: false,
+        taskTitle: "",
+        taskGroupId: "",
+        taskPriority: 0,
+        taskDueDate: ""
     };
 }

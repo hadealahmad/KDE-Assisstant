@@ -30,9 +30,15 @@ Kirigami.AbstractCard {
     readonly property bool isUser: role === "user"
     readonly property bool isApproval: role === "setting_approval"
     readonly property bool isMemory: role === "memory"
+    readonly property bool isTask: role === "task"
 
     property string memoryContent: ""
     property string memoryId: ""
+
+    property string taskTitle: ""
+    property string taskGroupId: ""
+    property int taskPriority: 0
+    property string taskDueDate: ""
 
     property string attachmentsJson: ""
 
@@ -120,7 +126,7 @@ Kirigami.AbstractCard {
 
     // Subtle tint to distinguish user vs assistant bubbles
     background: Rectangle {
-        visible: root.isUser || root.isError || root.isMemory
+        visible: root.isUser || root.isError || root.isMemory || root.isTask
         color: {
             if (root.isError)
                 return Qt.rgba(Kirigami.Theme.negativeTextColor.r, Kirigami.Theme.negativeTextColor.g, Kirigami.Theme.negativeTextColor.b, 0.08);
@@ -128,6 +134,8 @@ Kirigami.AbstractCard {
                 return Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g, Kirigami.Theme.highlightColor.b, 0.08);
             if (root.isMemory)
                 return Qt.rgba(Kirigami.Theme.positiveTextColor.r, Kirigami.Theme.positiveTextColor.g, Kirigami.Theme.positiveTextColor.b, 0.07);
+            if (root.isTask)
+                return Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g, 0.6, 0.07);
             return "transparent";
         }
         radius: Kirigami.Units.smallSpacing
@@ -138,6 +146,8 @@ Kirigami.AbstractCard {
                 return Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g, Kirigami.Theme.highlightColor.b, 0.3);
             if (root.isMemory)
                 return Qt.rgba(Kirigami.Theme.positiveTextColor.r, Kirigami.Theme.positiveTextColor.g, Kirigami.Theme.positiveTextColor.b, 0.3);
+            if (root.isTask)
+                return Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g, 0.6, 0.3);
             return "transparent";
         }
         border.width: 1
@@ -159,6 +169,8 @@ Kirigami.AbstractCard {
                     return "⚙ System Command";
                 if (root.isMemory)
                     return "🧠 Memory Saved";
+                if (root.isTask)
+                    return "✅ Task Created";
                 return "Assistant";
             }
             font.bold: true
@@ -174,6 +186,8 @@ Kirigami.AbstractCard {
                     return Kirigami.Theme.highlightColor;
                 if (root.isMemory)
                     return Kirigami.Theme.positiveTextColor;
+                if (root.isTask)
+                    return Kirigami.Theme.highlightColor;
                 return Kirigami.Theme.disabledTextColor;
             }
             Layout.leftMargin: Kirigami.Units.gridUnit * 2
@@ -323,7 +337,7 @@ Kirigami.AbstractCard {
             id: messageContent
             Layout.fillWidth: true
             Layout.leftMargin: Kirigami.Units.gridUnit * 2
-            visible: !root.isApproval && !root.isMemory && root.cleanMessageText !== ""
+            visible: !root.isApproval && !root.isMemory && !root.isTask && root.cleanMessageText !== ""
 
             readOnly: true
             wrapMode: TextEdit.WordWrap
@@ -488,6 +502,74 @@ Kirigami.AbstractCard {
                 Controls.ToolTip.delay: Kirigami.Units.toolTipDelay
                 Controls.ToolTip.visible: hovered
                 onClicked: fullRepRoot.deleteMemory(root.memoryId, root.messageIndex)
+            }
+        }
+
+        // Task card content
+        RowLayout {
+            visible: root.isTask
+            Layout.fillWidth: true
+            Layout.leftMargin: Kirigami.Units.gridUnit * 2
+            Layout.rightMargin: Kirigami.Units.smallSpacing
+            spacing: Kirigami.Units.smallSpacing
+
+            Kirigami.Icon {
+                source: "view-task"
+                Layout.preferredWidth: Kirigami.Units.iconSizes.medium
+                Layout.preferredHeight: Kirigami.Units.iconSizes.medium
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: Kirigami.Units.smallSpacing
+
+                Controls.Label {
+                    text: root.taskTitle
+                    font.bold: true
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
+
+                RowLayout {
+                    spacing: Kirigami.Units.smallSpacing
+                    visible: root.taskPriority > 0 || root.taskDueDate !== ""
+
+                    Rectangle {
+                        visible: root.taskPriority > 0
+                        width: Kirigami.Units.iconSizes.small
+                        height: width
+                        radius: width / 2
+                        color: root.taskPriority === 3 ? Kirigami.Theme.negativeTextColor :
+                               root.taskPriority === 2 ? Kirigami.Theme.highlightColor :
+                               root.taskPriority === 1 ? Kirigami.Theme.positiveTextColor : "transparent"
+                    }
+
+                    Controls.Label {
+                        visible: root.taskPriority > 0
+                        text: root.taskPriority === 3 ? "High" : root.taskPriority === 2 ? "Medium" : "Low"
+                        font.pointSize: Kirigami.Theme.smallFont.pointSize
+                        color: root.taskPriority === 3 ? Kirigami.Theme.negativeTextColor :
+                               root.taskPriority === 2 ? Kirigami.Theme.highlightColor :
+                               Kirigami.Theme.positiveTextColor
+                    }
+
+                    Controls.Label {
+                        visible: root.taskDueDate !== ""
+                        text: "Due: " + root.taskDueDate
+                        font.pointSize: Kirigami.Theme.smallFont.pointSize
+                        color: Kirigami.Theme.disabledTextColor
+                    }
+                }
+            }
+
+            Controls.ToolButton {
+                icon.name: "view-task"
+                display: Controls.AbstractButton.IconOnly
+                flat: true
+                Controls.ToolTip.text: "Open Tasks"
+                Controls.ToolTip.delay: Kirigami.Units.toolTipDelay
+                Controls.ToolTip.visible: hovered
+                onClicked: fullRepRoot.tasksViewActive = true
             }
         }
 
