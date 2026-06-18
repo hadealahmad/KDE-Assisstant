@@ -18,6 +18,9 @@ import "../code/ApiClient.js" as Api
 import "../code/AttachmentHelpers.js" as AttachmentHelpers
 import "../code/Database.js" as Db
 import "../code/TextHelpers.js" as TextHelpers
+import "../code/SttHandler.js" as Stt
+import "../code/StreamingManager.js" as Streaming
+import "../code/TaskCommandHandler.js" as TaskCmd
 
 Item {
     id: fullRepRoot
@@ -65,12 +68,11 @@ Item {
     function insertTextIntoInput(text) {
         console.log("STT_QML: Inserting text: " + text);
         if (text && text.trim().length > 0) {
-            if (inputArea.text.length > 0) {
-                inputArea.text += " " + text.trim();
+            if (chatPage.inputText.length > 0) {
+                chatPage.setInputText(chatPage.inputText + " " + text.trim());
             } else {
-                inputArea.text = text.trim();
+                chatPage.setInputText(text.trim());
             }
-            inputArea.forceActiveFocus();
         }
     }
 
@@ -90,44 +92,36 @@ Item {
     function startRecordingSession() {
         sttErrorText = "";
         var backend = Plasmoid.configuration.sttBackend || "disabled";
-        var lang = Plasmoid.configuration.sttLanguage || "en-US";
-        console.log("STT_QML: Starting recording session. Backend: " + backend + ", Lang: " + lang);
+        console.log("STT_QML: Starting recording session. Backend: " + backend);
 
         if (backend === "disabled")
             return;
 
-        if (backend === "local_dbus") {
+        var config = {
+            sttBackend: Plasmoid.configuration.sttBackend,
+            sttLanguage: Plasmoid.configuration.sttLanguage,
+            sttWhisperCliPath: Plasmoid.configuration.sttWhisperCliPath,
+            sttWhisperModelPath: Plasmoid.configuration.sttWhisperModelPath
+        };
+
+        var result = Stt.buildStartRecordingCommand(config);
+        if (!result) return;
+
+        if (result.useDaemon) {
             sttSignalWatcher.enabled = false;
-            isRecording = true;
-            originalInputText = inputArea.text;
-
-            var cli = (Plasmoid.configuration.sttWhisperCliPath || "whisper-stream").trim();
-            // Automatically redirect file CLI binary to streaming binary for live mode
-            if (cli.indexOf("whisper-cli") !== -1) {
-                cli = cli.replace("whisper-cli", "whisper-stream");
-            } else if (cli.indexOf("main") !== -1) {
-                cli = cli.replace("main", "stream");
-            }
-
-            var model = (Plasmoid.configuration.sttWhisperModelPath || "").trim();
-            var langCode = lang.split("-")[0];
-
-            var daemonPath = Qt.resolvedUrl("../code/whisper_daemon.py").toString();
-            if (daemonPath.indexOf("file://") === 0) {
-                daemonPath = daemonPath.substring(7);
-            }
-
-            activeSttCommand = "python3 " + TextHelpers.escapeShellArg(daemonPath) + " --bin " + TextHelpers.escapeShellArg(cli) + " --model " + TextHelpers.escapeShellArg(model) + " --language " + TextHelpers.escapeShellArg(langCode) + " --threads 4";
-            console.log("STT_QML: Running live whisper daemon: " + activeSttCommand);
-            executeCommandLine(activeSttCommand);
-            sttConnectTimer.start();
-            return;
         }
 
-        isRecording = true;
-        activeSttCommand = "arecord -f S16_LE -r 16000 -c 1 /tmp/kde_assistant_voice.wav";
-        console.log("STT_QML: Recording audio via command: " + activeSttCommand);
+        isRecording = result.isRecording;
+        if (result.useDaemon) {
+            originalInputText = chatPage.inputText;
+        }
+        activeSttCommand = result.command;
+        console.log("STT_QML: Running command: " + activeSttCommand);
         executeCommandLine(activeSttCommand);
+
+        if (result.useDaemon) {
+            sttConnectTimer.start();
+        }
     }
 
     function stopRecordingSession() {
@@ -137,13 +131,17 @@ Item {
         if (backend === "disabled")
             return;
 
-        if (backend === "local_dbus") {
+        var config = { sttBackend: Plasmoid.configuration.sttBackend };
+        var result = Stt.buildStopRecordingCommand(config);
+        if (!result) return;
+
+        if (result.useDaemon) {
             var killDaemonCallback = function (stdout, stderr, exitCode) {
                 console.log("STT_QML: whisper_daemon killed successfully. exitCode: " + exitCode);
                 isRecording = false;
             };
             console.log("STT_QML: Terminating whisper_daemon process via pkill.");
-            executeCommandLine("pkill -9 -f whisper_daemon.py", killDaemonCallback);
+            executeCommandLine(result.command, killDaemonCallback);
             return;
         }
 
@@ -153,99 +151,65 @@ Item {
             processRecordedAudio();
         };
         console.log("STT_QML: Terminating arecord process via killall.");
-        executeCommandLine("killall arecord", killCallback);
+        executeCommandLine(result.command, killCallback);
     }
 
     function processRecordedAudio() {
         var backend = Plasmoid.configuration.sttBackend || "disabled";
         console.log("STT_QML: Processing recorded audio. Backend: " + backend);
-        if (backend === "local") {
-            transcribeLocally();
-        } else if (backend === "cloud") {
-            transcribeInCloud();
-        } else if (backend === "lms") {
-            transcribeViaLms();
+
+        var config = {
+            sttBackend: Plasmoid.configuration.sttBackend,
+            sttLanguage: Plasmoid.configuration.sttLanguage,
+            sttWhisperCliPath: Plasmoid.configuration.sttWhisperCliPath,
+            sttWhisperModelPath: Plasmoid.configuration.sttWhisperModelPath,
+            sttCloudUrl: Plasmoid.configuration.sttCloudUrl,
+            sttCloudApiKey: Plasmoid.configuration.sttCloudApiKey,
+            apiKey: Plasmoid.configuration.apiKey,
+            sttLmsUrl: Plasmoid.configuration.sttLmsUrl,
+            sttLmsModel: Plasmoid.configuration.sttLmsModel
+        };
+
+        var result = Stt.buildTranscriptionCommand(config);
+        if (!result) return;
+
+        console.log("STT_QML: Running transcription command: " + result.command);
+
+        var transcriptionCallback = function (stdout, stderr, exitCode) {
+            console.log("STT_QML: Transcription finished. exitCode: " + exitCode);
+            if (exitCode === 0) {
+                var parsed = Stt.parseTranscriptionResponse(stdout, result.backend);
+                if (parsed.error) {
+                    sttErrorText = parsed.error;
+                    console.log("STT_QML: " + parsed.error);
+                } else {
+                    insertTextIntoInput(parsed.text);
+                }
+            } else {
+                sttErrorText = "Transcription failed. Code " + exitCode;
+                console.log("STT_QML: " + sttErrorText + ". stderr: " + stderr);
+            }
+        };
+
+        // For local backend, chain: whisper -> cat -> insertText
+        if (result.backend === "local") {
+            var whisperCallback = function (stdout, stderr, exitCode) {
+                console.log("STT_QML: Local whisper finished. exitCode: " + exitCode);
+                if (exitCode === 0) {
+                    var catCallback = function (catOut, catErr, catExit) {
+                        console.log("STT_QML: cat output: " + catOut);
+                        insertTextIntoInput(catOut);
+                    };
+                    executeCommandLine("cat /tmp/kde_assistant_voice.wav.txt", catCallback);
+                } else {
+                    sttErrorText = "Local Whisper transcription failed. Code " + exitCode;
+                    console.log("STT_QML: " + sttErrorText + ". stderr: " + stderr);
+                }
+            };
+            executeCommandLine(result.command, whisperCallback);
+        } else {
+            executeCommandLine(result.command, transcriptionCallback);
         }
-    }
-
-    function transcribeLocally() {
-        var cli = (Plasmoid.configuration.sttWhisperCliPath || "whisper-cli").trim();
-        var model = (Plasmoid.configuration.sttWhisperModelPath || "").trim();
-        var lang = (Plasmoid.configuration.sttLanguage || "en-US").trim().split("-")[0];
-
-        var cmd = cli + " -m " + model + " -f /tmp/kde_assistant_voice.wav -l " + lang + " -otxt";
-        console.log("STT_QML: Running local whisper transcription: " + cmd);
-
-        var whisperCallback = function (stdout, stderr, exitCode) {
-            console.log("STT_QML: Local whisper finished. exitCode: " + exitCode);
-            if (exitCode === 0) {
-                var catCallback = function (catOut, catErr, catExit) {
-                    console.log("STT_QML: cat output: " + catOut);
-                    insertTextIntoInput(catOut);
-                };
-                executeCommandLine("cat /tmp/kde_assistant_voice.wav.txt", catCallback);
-            } else {
-                sttErrorText = "Local Whisper transcription failed. Code " + exitCode;
-                console.log("STT_QML: " + sttErrorText + ". stderr: " + stderr);
-            }
-        };
-        executeCommandLine(cmd, whisperCallback);
-    }
-
-    function transcribeInCloud() {
-        var url = (Plasmoid.configuration.sttCloudUrl || "https://api.openai.com/v1/audio/transcriptions").trim();
-        var apiKey = (Plasmoid.configuration.sttCloudApiKey || Plasmoid.configuration.apiKey).trim();
-        var lang = (Plasmoid.configuration.sttLanguage || "en-US").trim().split("-")[0];
-
-        var curlCmd = "curl -s -X POST " + url + " -H \"Authorization: Bearer " + apiKey + "\"" + " -F file=@/tmp/kde_assistant_voice.wav" + " -F model=whisper-1" + " -F language=" + lang;
-        console.log("STT_QML: Sending transcription request to cloud...");
-
-        var cloudCallback = function (stdout, stderr, exitCode) {
-            console.log("STT_QML: Cloud response received. exitCode: " + exitCode);
-            if (exitCode === 0) {
-                try {
-                    console.log("STT_QML: Cloud response body: " + stdout);
-                    var response = JSON.parse(stdout);
-                    var text = response.text || "";
-                    insertTextIntoInput(text);
-                } catch (e) {
-                    sttErrorText = "Cloud JSON parse error: " + e.message;
-                    console.log("STT_QML: Parse error: " + e.message);
-                }
-            } else {
-                sttErrorText = "Cloud upload failed. curl exit " + exitCode;
-                console.log("STT_QML: " + sttErrorText + ". stderr: " + stderr);
-            }
-        };
-        executeCommandLine(curlCmd, cloudCallback);
-    }
-
-    function transcribeViaLms() {
-        var url = (Plasmoid.configuration.sttLmsUrl || "http://localhost:1234/v1/audio/transcriptions").trim();
-        var model = (Plasmoid.configuration.sttLmsModel || "whisper-1").trim();
-        var lang = (Plasmoid.configuration.sttLanguage || "en-US").trim().split("-")[0];
-
-        var curlCmd = "curl -s -X POST " + url + " -F file=@/tmp/kde_assistant_voice.wav" + " -F model=" + TextHelpers.escapeShellArg(model) + " -F language=" + lang;
-        console.log("STT_QML: Sending transcription request to LM Studio: " + curlCmd);
-
-        var lmsCallback = function (stdout, stderr, exitCode) {
-            console.log("STT_QML: LM Studio response received. exitCode: " + exitCode);
-            if (exitCode === 0) {
-                try {
-                    console.log("STT_QML: LM Studio response body: " + stdout);
-                    var response = JSON.parse(stdout);
-                    var text = response.text || "";
-                    insertTextIntoInput(text);
-                } catch (e) {
-                    sttErrorText = "LM Studio JSON parse error: " + e.message;
-                    console.log("STT_QML: Parse error: " + e.message);
-                }
-            } else {
-                sttErrorText = "LM Studio upload failed. curl exit " + exitCode;
-                console.log("STT_QML: " + sttErrorText + ". stderr: " + stderr);
-            }
-        };
-        executeCommandLine(curlCmd, lmsCallback);
     }
 
     // ── Command execution state ──────────────────────────────────
@@ -370,7 +334,6 @@ Item {
     function handleMultipleTaskCommands(taskTags, assistantIndex, originalText) {
         if (!taskTags || taskTags.length === 0) return;
 
-        var placeholderTitles = { "title": true, "task title": true, "task name": true };
         var createdTasks = [];
         var groupCache = {};
 
@@ -378,7 +341,7 @@ Item {
             var cmdTag = taskTags[i];
             var taskTitle = (cmdTag.title || "").trim();
             if (!taskTitle) continue;
-            if (placeholderTitles[taskTitle.toLowerCase()]) continue;
+            if (TaskCmd.isPlaceholderTitle(taskTitle)) continue;
 
             var taskOpts = { sessionId: currentSessionId };
 
@@ -440,7 +403,7 @@ Item {
             }));
         }
 
-        chatList.positionViewAtEnd();
+        chatPage.positionViewAtEnd();
         loadSessionList();
         reloadTaskList();
 
@@ -556,7 +519,7 @@ Item {
             messageModel.setProperty(assistantIndex, "content", cmdTag.command + "\n\n" + cmdTag.description);
             messageModel.setProperty(assistantIndex, "approvalStatus", "pending");
             messageModel.setProperty(assistantIndex, "approvalResult", "");
-            chatList.positionViewAtEnd();
+            chatPage.positionViewAtEnd();
         } else if (cmdTag.type === "remember") {
             var memContent = (cmdTag.content || "").trim();
             if (!memContent) return;
@@ -570,7 +533,7 @@ Item {
             messageModel.setProperty(assistantIndex, "content", "");
             messageModel.setProperty(assistantIndex, "memoryContent", memContent);
             messageModel.setProperty(assistantIndex, "memoryId", memId);
-            chatList.positionViewAtEnd();
+            chatPage.positionViewAtEnd();
 
             // Persist the memory card in the DB so it survives reload
             Db.saveMessage(db, currentSessionId, "memory", JSON.stringify({
@@ -616,8 +579,7 @@ Item {
 
             var taskTitle = (cmdTag.title || "").trim();
             if (!taskTitle) return;
-            var _pt = { "title": true, "task title": true, "task name": true };
-            if (_pt[taskTitle.toLowerCase()]) return;
+            if (TaskCmd.isPlaceholderTitle(taskTitle)) return;
             var savedTaskId = Db.saveTask(db, taskTitle, taskOpts);
 
             // Build confirmation details
@@ -649,7 +611,7 @@ Item {
             messageModel.setProperty(assistantIndex, "taskGroupId", taskOpts.groupId || "");
             messageModel.setProperty(assistantIndex, "taskPriority", taskOpts.priority || 0);
             messageModel.setProperty(assistantIndex, "taskDueDate", taskOpts.dueDate ? new Date(taskOpts.dueDate).toLocaleDateString() : "");
-            chatList.positionViewAtEnd();
+            chatPage.positionViewAtEnd();
 
             // Save task card in DB so it survives reload
             Db.saveMessage(db, currentSessionId, "task", JSON.stringify({
@@ -681,7 +643,7 @@ Item {
         isStreaming = true;
         var assistantIndex = messageModel.count;
         messageModel.append(TextHelpers.createDefaultMessage("assistant", ""));
-        chatList.positionViewAtEnd();
+        chatPage.positionViewAtEnd();
 
         var config = getApiConfig();
 
@@ -689,7 +651,7 @@ Item {
             if (assistantIndex < messageModel.count) {
                 messageModel.setProperty(assistantIndex, "content", TextHelpers.preprocessMarkdown(accumulated));
             }
-            chatList.positionViewAtEnd();
+            chatPage.positionViewAtEnd();
         }, function (finalText, usage) {
             isStreaming = false;
             if (usage && usage.total_tokens) {
@@ -718,7 +680,7 @@ Item {
                         if (assistantIndex < messageModel.count) {
                             messageModel.setProperty(assistantIndex, "content", "");
                         }
-                        chatList.positionViewAtEnd();
+                        chatPage.positionViewAtEnd();
                         loadSessionList();
                         return;
                     }
@@ -731,7 +693,7 @@ Item {
                 messageModel.setProperty(assistantIndex, "content", processed);
                 Db.saveMessage(db, currentSessionId, "assistant", finalText);
             }
-            chatList.positionViewAtEnd();
+            chatPage.positionViewAtEnd();
             loadSessionList();
         }, function (errorMsg) {
             isStreaming = false;
@@ -739,70 +701,24 @@ Item {
                 messageModel.setProperty(assistantIndex, "content", errorMsg);
                 messageModel.setProperty(assistantIndex, "isError", true);
             }
-            chatList.positionViewAtEnd();
+            chatPage.positionViewAtEnd();
         });
     }
 
     function getApiConfig() {
-        // Load persisted memories to inject into the system prompt
         var memObjs = Db.loadMemories(db);
         var memStrings = [];
         for (var i = 0; i < memObjs.length; i++) {
             memStrings.push(memObjs[i].content);
         }
-        return {
-            apiUrl: Plasmoid.configuration.apiUrl,
-            apiKey: Plasmoid.configuration.apiKey,
-            modelName: Plasmoid.configuration.modelName,
-            systemPrompt: Plasmoid.configuration.systemPrompt,
-            temperature: Plasmoid.configuration.temperature,
-            maxTokens: Plasmoid.configuration.maxTokens,
-            searchEnabled: Plasmoid.configuration.searchEnabled,
-            searchProvider: Plasmoid.configuration.searchProvider,
-            searchApiKey: Plasmoid.configuration.searchApiKey,
-            searchExtraUrl: Plasmoid.configuration.searchExtraUrl,
-            grepProvider: Plasmoid.configuration.grepProvider,
-            grepMaxResults: Plasmoid.configuration.grepMaxResults,
-            userNotes: Plasmoid.configuration.userNotes,
-            memories: memStrings,
-            prayerLatitude: Plasmoid.configuration.prayerLatitude,
-            prayerLongitude: Plasmoid.configuration.prayerLongitude,
-            prayerMethod: Plasmoid.configuration.prayerMethod
-        };
+        return Streaming.getApiConfig(Plasmoid.configuration, memStrings);
     }
 
     function updateContextUsage() {
         var config = getApiConfig();
-        var totalChars = 0;
-
-        var basePrompt = config.systemPrompt && config.systemPrompt.trim() !== ""
-            ? config.systemPrompt.trim()
-            : "You are a helpful assistant.";
-        totalChars += basePrompt.length;
-
-        if (config.userNotes && config.userNotes.trim() !== "") {
-            totalChars += config.userNotes.trim().length;
-        }
-        if (config.memories) {
-            for (var i = 0; i < config.memories.length; i++) {
-                totalChars += config.memories[i].length;
-            }
-        }
-
-        var msgs = buildMessageArray();
-        for (var j = 0; j < msgs.length; j++) {
-            var c = msgs[j].content;
-            if (typeof c === "string") {
-                totalChars += c.length;
-            } else if (Array.isArray(c)) {
-                for (var k = 0; k < c.length; k++) {
-                    if (c[k].text) totalChars += c[k].text.length;
-                }
-            }
-        }
-
-        contextUsedChars = totalChars;
-        contextUsagePercent = Math.min(100, Math.round((totalChars / contextMaxChars) * 100));
+        var result = Streaming.calculateContextUsage(config, messageModel, contextMaxChars, AttachmentHelpers);
+        contextUsedChars = result.usedChars;
+        contextUsagePercent = result.percent;
     }
 
     function approveSetting(command, description, assistantIndex) {
@@ -878,9 +794,9 @@ Item {
                 var cleanText = textStr.trim();
                 if (cleanText.length > 0) {
                     if (prefix.length > 0) {
-                        inputArea.text = prefix + " " + cleanText;
+                        chatPage.setInputText(prefix + " " + cleanText);
                     } else {
-                        inputArea.text = cleanText;
+                        chatPage.setInputText(cleanText);
                     }
                 }
             }
@@ -962,7 +878,7 @@ Item {
 
         // Auto-focus input on completion if expanded or desktop containment
         if (Plasmoid.expanded || Plasmoid.containmentType !== Plasmoid.PanelContainment) {
-            inputArea.forceActiveFocus();
+            chatPage.forceActiveFocus();
         }
     }
 
@@ -970,7 +886,7 @@ Item {
         target: root
         function onExpandedChanged() {
             if (root.expanded) {
-                inputArea.forceActiveFocus();
+                chatPage.forceActiveFocus();
             }
         }
     }
@@ -1173,7 +1089,7 @@ Item {
             messageModel.append(msg);
         }
         Qt.callLater(function () {
-            chatList.positionViewAtEnd();
+            chatPage.positionViewAtEnd();
         });
         historyViewActive = false;
         tasksViewActive = false;
@@ -1181,99 +1097,15 @@ Item {
     }
 
     function buildMessageArray() {
-        var arr = [];
-        for (var i = 0; i < messageModel.count; i++) {
-            var m = messageModel.get(i);
-            if (!m.isError) {
-                if (i === messageModel.count - 1 && m.role === "assistant" && m.content === "") {
-                    continue;
-                }
-                var role = m.role;
-                var content = m.content;
-
-                if (role === "setting_approval") {
-                    role = "assistant";
-                }
-
-                if (role === "system_command") {
-                    var cmdCode = m.commandCode || "";
-                    var cmdOutput = m.commandOutput || "";
-                    arr.push({
-                        role: "assistant",
-                        content: "[SYSTEM: " + cmdCode + "]"
-                    });
-                    arr.push({
-                        role: "system",
-                        content: "System Output for `" + cmdCode + "`:\n\n" + cmdOutput
-                    });
-                } else if (role === "memory") {
-                    // Skip memory cards from API context (they're in the system prompt already)
-                    continue;
-                } else {
-                    // Handle attachments
-                    var attachments = AttachmentHelpers.parseAttachmentsJson(m.attachmentsJson || "");
-                    var hasBinaryAttachments = false;
-
-                    for (var a = 0; a < attachments.length; a++) {
-                        if (attachments[a].type === "image" || attachments[a].type === "pdf") {
-                            hasBinaryAttachments = true;
-                            break;
-                        }
-                    }
-
-                    if (hasBinaryAttachments) {
-                        // Build multimodal content array
-                        var contentParts = [];
-                        var textContent = content || "";
-
-                        // Inline text attachments
-                        for (var a = 0; a < attachments.length; a++) {
-                            if (attachments[a].type === "text") {
-                                textContent += "\n\n---\n**File: " + attachments[a].fileName + "**\n```\n"
-                                    + attachments[a].data + "\n```";
-                            }
-                        }
-                        if (textContent.trim() !== "") {
-                            contentParts.push({ type: "text", text: textContent });
-                        }
-
-                        // Image/PDF parts
-                        for (var a = 0; a < attachments.length; a++) {
-                            var att = attachments[a];
-                            if (att.type === "image" || att.type === "pdf") {
-                                contentParts.push({
-                                    type: "image_url",
-                                    image_url: {
-                                        url: "data:" + att.mimeType + ";base64," + att.data
-                                    }
-                                });
-                            }
-                        }
-
-                        arr.push({ role: role, content: contentParts });
-                    } else {
-                        // No binary attachments: inline text attachments into content string
-                        var finalContent = content || "";
-                        for (var a = 0; a < attachments.length; a++) {
-                            if (attachments[a].type === "text") {
-                                finalContent += "\n\n---\n**File: " + attachments[a].fileName + "**\n```\n"
-                                    + attachments[a].data + "\n```";
-                            }
-                        }
-                        arr.push({ role: role, content: finalContent });
-                    }
-                }
-            }
-        }
-        return arr;
+        return Streaming.buildMessageArray(messageModel, AttachmentHelpers);
     }
 
     function sendMessage() {
-        var text = inputArea.text.trim();
+        var text = chatPage.inputText.trim();
         if ((!text && pendingAttachments.length === 0) || isStreaming)
             return;
 
-        inputArea.text = "";
+        chatPage.setInputText("");
 
         // Consume pending attachments
         var attachmentsJson = "";
@@ -1302,7 +1134,7 @@ Item {
         var assistantIndex = messageModel.count;
         messageModel.append(TextHelpers.createDefaultMessage("assistant", ""));
         Qt.callLater(function () {
-            chatList.positionViewAtEnd();
+            chatPage.positionViewAtEnd();
         });
 
         isStreaming = true;
@@ -1314,7 +1146,7 @@ Item {
             if (assistantIndex < messageModel.count) {
                 messageModel.setProperty(assistantIndex, "content", TextHelpers.preprocessMarkdown(accumulated));
             }
-            chatList.positionViewAtEnd();
+            chatPage.positionViewAtEnd();
         }, function (finalText, usage) {
             // onComplete
             isStreaming = false;
@@ -1344,7 +1176,7 @@ Item {
                         if (assistantIndex < messageModel.count) {
                             messageModel.setProperty(assistantIndex, "content", "");
                         }
-                        chatList.positionViewAtEnd();
+                        chatPage.positionViewAtEnd();
                         loadSessionList();
                         return;
                     }
@@ -1357,7 +1189,7 @@ Item {
                 messageModel.setProperty(assistantIndex, "content", processed);
                 Db.saveMessage(db, currentSessionId, "assistant", finalText);
             }
-            chatList.positionViewAtEnd();
+            chatPage.positionViewAtEnd();
             loadSessionList();
         }, function (errorMsg) {
             // onError
@@ -1366,7 +1198,7 @@ Item {
                 messageModel.setProperty(assistantIndex, "content", errorMsg);
                 messageModel.setProperty(assistantIndex, "isError", true);
             }
-            chatList.positionViewAtEnd();
+            chatPage.positionViewAtEnd();
         });
     }
 
@@ -1378,543 +1210,63 @@ Item {
         currentIndex: tasksViewActive ? 3 : memoriesViewActive ? 2 : historyViewActive ? 1 : 0
 
         // PAGE 0: Chat Interface
-        ColumnLayout {
+        ChatPage {
             id: chatPage
-            spacing: 0
+            messageModel: fullRepRoot.messageModel
+            currentSessionTitle: fullRepRoot.currentSessionTitle
+            isStreaming: fullRepRoot.isStreaming
+            isRecording: fullRepRoot.isRecording
+            contextUsedChars: fullRepRoot.contextUsedChars
+            contextMaxChars: fullRepRoot.contextMaxChars
+            contextUsagePercent: fullRepRoot.contextUsagePercent
+            pendingAttachments: fullRepRoot.pendingAttachments
+            attachmentErrorText: fullRepRoot.attachmentErrorText
+            sttErrorText: fullRepRoot.sttErrorText
+            modelName: Plasmoid.configuration.modelName || ""
+            apiUrl: Plasmoid.configuration.apiUrl || ""
+            sttBackend: Plasmoid.configuration.sttBackend || "disabled"
+            keepOpen: root.keepOpen
+            memoryCount: fullRepRoot.memoryModel.count
 
-            // Header
-            PageHeader {
-                showBackButton: false
-                title: currentSessionTitle
-                actionButtons: [
-                    { icon: "chronometer", tooltip: "Chat History", onClicked: function() { historyViewActive = true; } },
-                    { icon: "list-add", tooltip: "New Chat", onClicked: function() { startNewSession(); } },
-                    { icon: "edit-copy", tooltip: "Copy Conversation", onClicked: function() { fullRepRoot.copyConversationToClipboard(); } },
-                    { icon: "view-task", tooltip: "Tasks", onClicked: function() { tasksViewActive = true; historyViewActive = false; memoriesViewActive = false; } },
-                    { icon: "view-list-text", tooltip: "Memories (" + memoryModel.count + ")", onClicked: function() {
-                        memoriesViewActive = true;
-                        historyViewActive = false;
-                        tasksViewActive = false;
-                    }},
-                    { icon: "configure", tooltip: "Settings", onClicked: function() { Plasmoid.internalAction("configure").trigger(); } },
-                    { icon: root.keepOpen ? "window-unpin" : "window-pin", tooltip: root.keepOpen ? "Unpin (auto-close)" : "Pin (keep open)", onClicked: function() { root.keepOpen = !root.keepOpen; } }
-                ]
+            onSendMessage: fullRepRoot.sendMessage()
+            onToggleRecording: fullRepRoot.toggleRecording()
+            onStartNewSession: fullRepRoot.startNewSession()
+            onCopyConversation: fullRepRoot.copyConversationToClipboard()
+            onOpenSettings: Plasmoid.internalAction("configure").trigger()
+            onTogglePin: root.keepOpen = !root.keepOpen
+            onToggleHistory: { historyViewActive = true; }
+            onToggleTasks: { tasksViewActive = true; historyViewActive = false; memoriesViewActive = false; }
+            onToggleMemories: { memoriesViewActive = true; historyViewActive = false; tasksViewActive = false; }
+            onStopStreaming: fullRepRoot.stopStreamingAndSave()
+            onOpenFilePicker: filePickerDialog.open()
+            onRemoveAttachment: function(index) {
+                fullRepRoot.pendingAttachments.splice(index, 1);
+                fullRepRoot.pendingAttachmentsChanged();
             }
-
-            // Session model name (below header)
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.leftMargin: Kirigami.Units.smallSpacing * 2
-                Layout.rightMargin: Kirigami.Units.smallSpacing * 2
-                spacing: Kirigami.Units.smallSpacing
-
-                Controls.Label {
-                    text: Plasmoid.configuration.modelName || "No model set"
-                    font.pointSize: Kirigami.Theme.smallFont.pointSize
-                    color: Kirigami.Theme.disabledTextColor
-                    elide: Text.ElideRight
-                    Layout.fillWidth: true
-                }
-
-                Controls.Label {
-                    text: {
-                        var used = contextUsedChars;
-                        var total = contextMaxChars;
-                        if (used >= 1000) {
-                            return (used / 1000).toFixed(1) + "k/" + (total / 1000).toFixed(0) + "k (" + contextUsagePercent + "%)";
-                        }
-                        return used + "/" + total + " (" + contextUsagePercent + "%)";
-                    }
-                    font.pointSize: Kirigami.Theme.smallFont.pointSize
-                    color: contextUsagePercent > 80 ? Kirigami.Theme.negativeTextColor
-                         : contextUsagePercent > 50 ? Kirigami.Theme.neutralTextColor
-                         : Kirigami.Theme.disabledTextColor
-                }
-            }
-
-            Kirigami.Separator {
-                Layout.fillWidth: true
-            }
-
-            // Message list
-            ListView {
-                id: chatList
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                clip: true
-                model: messageModel
-                spacing: Kirigami.Units.smallSpacing
-                topMargin: Kirigami.Units.smallSpacing
-                bottomMargin: Kirigami.Units.smallSpacing
-                leftMargin: Kirigami.Units.smallSpacing
-                rightMargin: Kirigami.Units.smallSpacing
-                cacheBuffer: 100000
-
-                Controls.ScrollBar.vertical: Controls.ScrollBar {
-                    policy: Controls.ScrollBar.AsNeeded
-                    visible: chatList.contentHeight > chatList.height
-                }
-
-                Controls.ScrollBar.horizontal: Controls.ScrollBar {
-                    policy: Controls.ScrollBar.AlwaysOff
-                    visible: false
-                }
-
-                // Empty state
-                Kirigami.PlaceholderMessage {
-                    anchors.centerIn: parent
-                    width: parent.width - Kirigami.Units.gridUnit * 4
-                    visible: chatList.count === 0
-                    icon.name: "assistant"
-                    text: "KDE Assistant"
-                    explanation: "Ask anything. Powered by " + (Plasmoid.configuration.modelName || "your LLM") + " at " + (Plasmoid.configuration.apiUrl || "localhost")
-                }
-
-                delegate: Item {
-                    id: delegateRoot
-                    required property string content
-                    required property string role
-                    required property bool isError
-                    required property int index
-                    required property string approvalStatus
-                    required property string approvalResult
-                    required property bool isCommand
-                    required property string commandCode
-                    required property string commandOutput
-                    required property string commandStatus
-                    required property bool isMemory
-                    required property string memoryContent
-                    required property string memoryId
-                    required property string attachmentsJson
-                    required property string taskTitle
-                    required property string taskGroupId
-                    required property int taskPriority
-                    required property string taskDueDate
-
-                    width: chatList.width - chatList.leftMargin - chatList.rightMargin - Kirigami.Units.gridUnit * 1.5
-                    height: messageCard.implicitHeight
-
-                    ChatMessage {
-                        id: messageCard
-                        width: parent.width
-                        messageText: content
-                        role: delegateRoot.role
-                        isError: delegateRoot.isError
-                        messageIndex: delegateRoot.index
-                        approvalStatus: delegateRoot.approvalStatus
-                        approvalResult: delegateRoot.approvalResult
-
-                        isCommand: delegateRoot.isCommand
-                        commandCode: delegateRoot.commandCode
-                        commandOutput: delegateRoot.commandOutput
-                        commandStatus: delegateRoot.commandStatus
-
-                        memoryContent: delegateRoot.memoryContent
-                        memoryId: delegateRoot.memoryId
-                        attachmentsJson: delegateRoot.attachmentsJson
-
-                        taskTitle: delegateRoot.taskTitle
-                        taskGroupId: delegateRoot.taskGroupId
-                        taskPriority: delegateRoot.taskPriority
-                        taskDueDate: delegateRoot.taskDueDate
-                    }
-                }
-            }
-
-            Kirigami.Separator {
-                Layout.fillWidth: true
-            }
-
-            // Attachment error display
-            Controls.Label {
-                Layout.fillWidth: true
-                Layout.leftMargin: Kirigami.Units.smallSpacing * 2
-                text: attachmentErrorText
-                font.pointSize: Kirigami.Theme.smallFont.pointSize
-                color: Kirigami.Theme.negativeTextColor
-                visible: attachmentErrorText !== ""
-                height: visible ? implicitHeight + Kirigami.Units.smallSpacing : 0
-                wrapMode: Text.WordWrap
-            }
-
-            Timer {
-                id: attachmentErrorTimer
-                interval: 5000
-                onTriggered: attachmentErrorText = ""
-            }
-
-            // Pending attachment preview strip
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.margins: Kirigami.Units.smallSpacing
-                Layout.leftMargin: Kirigami.Units.smallSpacing * 2
-                Layout.rightMargin: Kirigami.Units.smallSpacing * 2
-                spacing: Kirigami.Units.smallSpacing
-                visible: pendingAttachments.length > 0
-
-                Repeater {
-                    model: pendingAttachments.length
-
-                    Rectangle {
-                        property var attachmentData: pendingAttachments[index]
-
-                        Layout.preferredWidth: attRow.implicitWidth + Kirigami.Units.smallSpacing * 4
-                        Layout.preferredHeight: Kirigami.Units.gridUnit * 3
-                        radius: Kirigami.Units.smallSpacing
-                        color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.05)
-                        border.color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.15)
-                        border.width: 1
-
-                        RowLayout {
-                            id: attRow
-                            anchors.fill: parent
-                            anchors.margins: Kirigami.Units.smallSpacing
-                            spacing: Kirigami.Units.smallSpacing
-
-                            Kirigami.Icon {
-                                source: attachmentData.type === "image" ? "image-x-generic"
-                                      : attachmentData.type === "pdf"   ? "application-pdf"
-                                      :                                   "text-plain"
-                                Layout.preferredWidth: Kirigami.Units.iconSizes.small
-                                Layout.preferredHeight: Kirigami.Units.iconSizes.small
-                            }
-
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 0
-
-                                Controls.Label {
-                                    text: attachmentData.fileName
-                                    elide: Text.ElideMiddle
-                                    Layout.fillWidth: true
-                                    font.pointSize: Kirigami.Theme.smallFont.pointSize
-                                }
-                                Controls.Label {
-                                    text: AttachmentHelpers.getMimeType(attachmentData.fileName)
-                                    font.pointSize: Kirigami.Theme.smallFont.pointSize - 1
-                                    color: Kirigami.Theme.disabledTextColor
-                                }
-                            }
-
-                            Controls.ToolButton {
-                                icon.name: "dialog-cancel"
-                                flat: true
-                                onClicked: {
-                                    pendingAttachments.splice(index, 1);
-                                    pendingAttachmentsChanged();
-                                }
-                                Controls.ToolTip.text: "Remove attachment"
-                                Controls.ToolTip.delay: Kirigami.Units.toolTipDelay
-                                Controls.ToolTip.visible: hovered
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Streaming indicator
-            Controls.Label {
-                Layout.fillWidth: true
-                Layout.leftMargin: Kirigami.Units.smallSpacing * 2
-                text: "Generating…"
-                font.pointSize: Kirigami.Theme.smallFont.pointSize
-                color: Kirigami.Theme.disabledTextColor
-                visible: isStreaming
-                height: visible ? implicitHeight + Kirigami.Units.smallSpacing : 0
-
-                Behavior on height {
-                    NumberAnimation {
-                        duration: 150
-                    }
-                }
-            }
-
-            // Input row
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.margins: Kirigami.Units.smallSpacing
-                spacing: Kirigami.Units.smallSpacing
-
-                Controls.ScrollView {
-                    Layout.fillWidth: true
-                    Layout.maximumHeight: Kirigami.Units.gridUnit * 6
-                    clip: true
-
-                    Controls.ScrollBar.horizontal.policy: Controls.ScrollBar.AlwaysOff
-                    Controls.ScrollBar.vertical.policy: Controls.ScrollBar.AsNeeded
-
-                    Controls.TextArea {
-                        id: inputArea
-                        placeholderText: "Type a message… (Enter to send, Shift+Enter for newline)"
-                        wrapMode: TextEdit.Wrap
-                        enabled: !isStreaming
-                        background: null
-
-                        Keys.onReturnPressed: function (event) {
-                            if (event.modifiers & Qt.ShiftModifier) {
-                                event.accepted = false;
-                            } else {
-                                event.accepted = true;
-                                fullRepRoot.sendMessage();
-                            }
-                        }
-                    }
-                }
-
-                RowLayout {
-                    spacing: Kirigami.Units.smallSpacing
-
-                    // Attach file button
-                    PlasmaComponents.ToolButton {
-                        id: attachButton
-                        icon.name: "mail-attachment"
-                        enabled: !isStreaming
-                        onClicked: filePickerDialog.open()
-                        PlasmaComponents.ToolTip {
-                            text: "Attach file"
-                        }
-                    }
-
-                    // Speech-to-Text Button
-                    PlasmaComponents.ToolButton {
-                        id: micBtn
-                        icon.name: isRecording ? "audio-input-microphone" : "audio-input-microphone-muted"
-                        checked: isRecording
-                        checkable: true
-                        visible: (Plasmoid.configuration.sttBackend || "disabled") !== "disabled"
-                        onClicked: toggleRecording()
-                        PlasmaComponents.ToolTip {
-                            text: sttErrorText.length > 0 ? "Error: " + sttErrorText : (isRecording ? "Recording... Click to Stop & Transcribe" : "Voice Typing (Speech-to-Text)")
-                        }
-                    }
-
-                    // Send button
-                    PlasmaComponents.ToolButton {
-                        id: sendButton
-                        icon.name: "go-next"
-                        enabled: !isStreaming && (inputArea.text.trim().length > 0 || pendingAttachments.length > 0)
-                        onClicked: fullRepRoot.sendMessage()
-                        PlasmaComponents.ToolTip {
-                            text: "Send (Enter)"
-                        }
-                    }
-
-                    // Stop button
-                    PlasmaComponents.ToolButton {
-                        icon.name: "media-playback-stop"
-                        enabled: isStreaming
-                        visible: isStreaming
-                        onClicked: {
-                            stopStreamingAndSave();
-                        }
-                        PlasmaComponents.ToolTip {
-                            text: "Stop generating"
-                        }
-                    }
-                }
-            }
+            onFilesDropped: function(urls) { fullRepRoot.processSelectedFiles(urls); }
         }
 
         // PAGE 1: Full History Page
-        ColumnLayout {
+        HistoryPage {
             id: historyPage
-            spacing: 0
-
-            // Header
-            PageHeader {
-                title: "History"
-                onBackClicked: historyViewActive = false
-                actionButtons: [
-                    { icon: "list-add", tooltip: "New Chat", onClicked: function() { startNewSession(); } }
-                ]
-            }
-
-            Kirigami.Separator {
-                Layout.fillWidth: true
-            }
-
-            // History ListView
-            ListView {
-                id: sessionListView
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                clip: true
-                model: sessionModel
-                spacing: Kirigami.Units.smallSpacing
-                topMargin: Kirigami.Units.smallSpacing
-                bottomMargin: Kirigami.Units.smallSpacing
-                leftMargin: Kirigami.Units.smallSpacing
-                rightMargin: Kirigami.Units.smallSpacing
-
-                Controls.ScrollBar.vertical: Controls.ScrollBar {
-                    policy: Controls.ScrollBar.AsNeeded
-                    visible: sessionListView.contentHeight > sessionListView.height
-                }
-
-                Controls.ScrollBar.horizontal: Controls.ScrollBar {
-                    policy: Controls.ScrollBar.AlwaysOff
-                    visible: false
-                }
-
-                // Empty state for history
-                Kirigami.PlaceholderMessage {
-                    anchors.centerIn: parent
-                    width: parent.width - Kirigami.Units.gridUnit * 4
-                    visible: sessionListView.count === 0
-                    icon.name: "chronometer"
-                    text: "No History"
-                    explanation: "Your past conversations will show up here."
-                }
-
-                delegate: Controls.ItemDelegate {
-                    required property string id
-                    required property string title
-                    required property int updated_at
-
-                    width: sessionListView.width - sessionListView.leftMargin - sessionListView.rightMargin - Kirigami.Units.gridUnit * 1.5
-                    highlighted: id === currentSessionId
-                    padding: Kirigami.Units.smallSpacing
-
-                    contentItem: RowLayout {
-                        spacing: Kirigami.Units.smallSpacing
-
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: 2
-                            Controls.Label {
-                                text: title || "Untitled"
-                                elide: Text.ElideRight
-                                Layout.fillWidth: true
-                                font.bold: id === currentSessionId
-                                font.pointSize: Kirigami.Theme.defaultFont.pointSize
-                            }
-                            Controls.Label {
-                                text: Qt.formatDateTime(new Date(updated_at), "dd MMM yyyy, hh:mm")
-                                font.pointSize: Kirigami.Theme.smallFont.pointSize
-                                color: Kirigami.Theme.disabledTextColor
-                                Layout.fillWidth: true
-                            }
-                        }
-
-                        // Delete button directly accessible
-                        PlasmaComponents.ToolButton {
-                            icon.name: "edit-delete"
-                            onClicked: {
-                                Db.deleteSession(db, id);
-                                if (id === currentSessionId) {
-                                    startNewSession();
-                                } else {
-                                    loadSessionList();
-                                }
-                            }
-                            PlasmaComponents.ToolTip {
-                                text: "Delete conversation"
-                            }
-                        }
-                    }
-
-                    onClicked: loadSession(id, title)
-                }
-            }
+            sessionModel: fullRepRoot.sessionModel
+            currentSessionId: fullRepRoot.currentSessionId
+            onBackClicked: historyViewActive = false
+            onLoadSession: function(sessionId, sessionTitle) { fullRepRoot.loadSession(sessionId, sessionTitle); }
+            onStartNewSession: fullRepRoot.startNewSession()
         }
 
         // PAGE 2: Memories View
-        ColumnLayout {
+        MemoriesPage {
             id: memoriesPage
-            spacing: 0
-
-            // Header
-            PageHeader {
-                title: "Memories"
-                onBackClicked: memoriesViewActive = false
-                actionButtons: [
-                    { icon: "edit-clear-all", tooltip: "Clear all memories", enabled: memoryModel.count > 0, onClicked: function() {
-                        Db.clearMemories(db);
-                        loadMemoryList();
-                    }}
-                ]
+            memoryModel: fullRepRoot.memoryModel
+            onBackClicked: memoriesViewActive = false
+            onClearAllMemories: {
+                Db.clearMemories(fullRepRoot.db);
+                fullRepRoot.loadMemoryList();
             }
-
-            Kirigami.Separator {
-                Layout.fillWidth: true
-            }
-
-            // Memory list
-            ListView {
-                id: memoryListView
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                clip: true
-                model: memoryModel
-                spacing: Kirigami.Units.smallSpacing
-                topMargin: Kirigami.Units.smallSpacing
-                bottomMargin: Kirigami.Units.smallSpacing
-                leftMargin: Kirigami.Units.smallSpacing
-                rightMargin: Kirigami.Units.smallSpacing
-
-                Controls.ScrollBar.vertical: Controls.ScrollBar {
-                    policy: Controls.ScrollBar.AsNeeded
-                    visible: memoryListView.contentHeight > memoryListView.height
-                }
-                Controls.ScrollBar.horizontal: Controls.ScrollBar {
-                    policy: Controls.ScrollBar.AlwaysOff
-                    visible: false
-                }
-
-                Kirigami.PlaceholderMessage {
-                    anchors.centerIn: parent
-                    width: parent.width - Kirigami.Units.gridUnit * 4
-                    visible: memoryListView.count === 0
-                    icon.name: "view-list-text"
-                    text: "No Memories Yet"
-                    explanation: "Ask the assistant to remember something, or write personal notes in Settings."
-                }
-
-                delegate: Controls.ItemDelegate {
-                    required property string id
-                    required property string content
-                    required property int created_at
-
-                    width: memoryListView.width - memoryListView.leftMargin - memoryListView.rightMargin - Kirigami.Units.gridUnit * 1.5
-                    padding: Kirigami.Units.smallSpacing
-
-                    contentItem: RowLayout {
-                        spacing: Kirigami.Units.smallSpacing
-
-                        Kirigami.Icon {
-                            source: "view-list-text"
-                            Layout.preferredWidth: Kirigami.Units.iconSizes.small
-                            Layout.preferredHeight: Kirigami.Units.iconSizes.small
-                            color: Kirigami.Theme.positiveTextColor
-                        }
-
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: 2
-                            Controls.Label {
-                                text: content
-                                wrapMode: Text.WordWrap
-                                Layout.fillWidth: true
-                            }
-                            Controls.Label {
-                                text: Qt.formatDateTime(new Date(created_at), "dd MMM yyyy, hh:mm")
-                                font.pointSize: Kirigami.Theme.smallFont.pointSize
-                                color: Kirigami.Theme.disabledTextColor
-                            }
-                        }
-
-                        PlasmaComponents.ToolButton {
-                            icon.name: "edit-delete"
-                            onClicked: {
-                                Db.deleteMemory(db, id);
-                                loadMemoryList();
-                            }
-                            PlasmaComponents.ToolTip {
-                                text: "Forget this"
-                            }
-                        }
-                    }
-                }
+            onDeleteMemory: function(memId) {
+                fullRepRoot.deleteMemory(memId, -1);
             }
         }
 
@@ -1948,45 +1300,6 @@ Item {
         fileMode: FileDialog.OpenFiles
         onAccepted: {
             fullRepRoot.processSelectedFiles(selectedFiles);
-        }
-    }
-
-    // Drag-and-drop overlay on chat area
-    DropArea {
-        anchors.fill: chatList
-        keys: ["text/uri-list"]
-
-        onEntered: function(drag) {
-            dropOverlay.visible = true;
-        }
-        onExited: {
-            dropOverlay.visible = false;
-        }
-        onDropped: function(drop) {
-            dropOverlay.visible = false;
-            if (drop.hasUrls) {
-                processSelectedFiles(drop.urls);
-            }
-        }
-
-        Rectangle {
-            id: dropOverlay
-            visible: false
-            anchors.fill: parent
-            color: Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g,
-                            Kirigami.Theme.highlightColor.b, 0.1)
-            border.color: Kirigami.Theme.highlightColor
-            border.width: 2
-            radius: Kirigami.Units.smallSpacing
-            z: 100
-
-            Kirigami.PlaceholderMessage {
-                anchors.centerIn: parent
-                width: parent.width - Kirigami.Units.gridUnit * 4
-                icon.name: "mail-attachment"
-                text: "Drop files to attach"
-                explanation: "Text files will be read inline. Images and PDFs will be sent to the model."
-            }
         }
     }
 }

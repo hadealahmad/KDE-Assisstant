@@ -1,131 +1,69 @@
-# KDE Assistant 🧠💬
+# KDE Assistant
 
-KDE Assistant is a premium, feature-rich AI chat plasmoid designed for the **KDE Plasma 6** desktop environment. It resides in your panel or on your desktop, bringing a fully conversational LLM assistant, local memory, web search, voice input, file attachments, and shell execution tools directly to your workspace.
+A feature-rich AI chat plasmoid for **KDE Plasma 6**. Lives in your panel or desktop, bringing an LLM assistant with memory, search, voice input, file attachments, and task management to your workspace.
 
----
+## Features
 
-## Key Features
+- **Multi-Provider API Support** — OpenRouter, OpenAI, Gemini, LM Studio, Ollama, Llama.cpp, or custom endpoints with model auto-discovery
+- **Memory System** — Ask the assistant to remember things; persisted locally and injected into context automatically
+- **Task Management** — Groups, priorities, due dates, recurrence, subtasks. Create manually or let the AI create them conversationally
+- **Voice Typing** — Speech-to-text via local Whisper.cpp, remote Whisper API, or LM Studio
+- **File Attachments** — Text, images, and PDFs with drag-and-drop support
+- **Web & Code Search** — DuckDuckGo, Tavily, Searxng, Google, plus local grep/ripgrep
+- **Shell Execution** — AI can run commands with approve/reject approval flow
+- **Context Tracker** — Real-time token usage display with color-coded indicators
+- **Window Pinning** — Keep the chat floating above other windows
+- **Local Persistence** — All sessions, messages, memories, and tasks saved in SQLite
 
-- **🔌 Comprehensive API Presets & Auto-Discovery:**
-  - Select from preconfigured presets: **OpenRouter**, **OpenAI**, **Gemini (Google)**, **LM Studio**, **Ollama**, **Llama.cpp**, or a **Custom** API endpoint.
-  - Query your API endpoint directly from the settings page to fetch, search, and select available models.
-
-- **🧠 Memory & Personal Context:**
-  - **Manual Notes:** Set permanent system details, programming preferences, or details about yourself in the settings panel to be prepended to every message.
-  - **Interactive Memories:** Instruct the AI to *"remember that my projects are stored in `/run/media/hadi/SSD2/Coding`"*. The assistant parses declarative memories using a `[REMEMBER: ...]` instruction, saves them to a local database, and displays them as active cards.
-  - **Memory Panel:** View, delete individual, or clear all saved memories using the dedicated 🧠 button in the header.
-
-- **📅 Date/Time & Hijri Calendar Context:**
-  - Automatically injects the current Gregorian date, time, and timezone into every LLM system prompt so the AI always knows "now."
-  - Includes a local **Hijri (Umm al-Qura)** calendar conversion — the AI can reference both Gregorian and Islamic dates without external APIs.
-
-- **🕌 Islamic Prayer Times:**
-  - Configure your latitude, longitude, and calculation method (MWL, ISNA, Umm Al-Qura, Egyptian, Tehran, and more) in the settings panel.
-  - The AI uses the AlAdhan API to fetch accurate daily or monthly prayer timetables on request.
-  - When location is not configured, the AI will ask the user for their city or coordinates.
-
-- **✅ Task Management:**
-  - Full task system with **groups**, **priorities** (None/Low/Medium/High), **due dates**, **recurrence** (Daily/Weekly/Monthly/Yearly), and **subtasks**.
-  - Create tasks manually via the dedicated Tasks page, or let the AI create them conversationally using `[TASK: title]` or `[ADD_TASK: title group="..." priority=high ...]` tags.
-  - **Multiple tasks in one message:** The AI can output several task tags at once — related tasks sharing the same group name are automatically grouped together.
-  - Tasks display as interactive cards in the chat with checkbox, priority badge, due date, and expandable subtask list.
-  - Filter tasks by group, mark complete, edit, or delete from the Tasks page.
-
-- **🛠️ Integrated Tool Actions & Execution (with Safe User-in-the-Loop Approval):**
-  - Allows the LLM to inspect files, search code, and execute terminal commands.
-  - Actions display clean visual command blocks with code highlighting, execution status, stdout/stderr, and **Approve / Reject** buttons to keep you in control of your system.
-
-- **🌐 Search Integration:**
-  - Performs real-time web searches using **DuckDuckGo**, **Tavily**, **Searxng**, or **Google**.
-  - Performs local code searches using **grep** and **ripgrep**.
-
-- **🎤 Voice Typing (Speech-to-Text):**
-  - Dictate messages directly into the chat input using your microphone.
-  - Supports multiple backends: **Local Whisper.cpp** (via `whisper-stream`), **Remote Whisper API** (OpenAI-compatible), and **LM Studio Whisper**.
-  - Runs a lightweight DBus daemon (`whisper_daemon.py`) for real-time streaming transcription.
-
-- **📎 File Attachments:**
-  - Attach files to messages before sending them to the LLM.
-  - Supports **text files** (source code, configs, markdown, etc.), **images** (PNG, JPG, GIF, WebP, BMP), and **PDFs**.
-  - Attached file content is displayed in collapsible blocks within the chat for clean, organized presentation.
-  - 5 MB per-file size limit with validation and MIME type detection.
-
-- **📌 Smart Window Pinning:**
-  - Includes a pin toggle button in the chat header.
-  - Pinning disables automatic auto-close/blur (`hideOnWindowDeactivate`) and applies `Qt.WindowStaysOnTopHint` to keep the assistant open and floating above other windows.
-
-- **🗄️ Local History Persistence:**
-  - All chat sessions, messages, memories, and tasks are saved locally using QML SQLite `LocalStorage`.
-
----
-
-## Directory Structure
-
-```
-.
-├── contents/
-│   ├── code/
-│   │   ├── ApiClient.js          # API communications, streaming parser, and memory injector
-│   │   ├── AttachmentHelpers.js  # File attachment utilities, MIME detection, and validation
-│   │   ├── Database.js           # SQLite database schema, sessions, messages, memories, tasks, and groups
-│   │   ├── PrayerTimes.js        # Hijri calendar calculation, Gregorian date/time context, and prayer times
-│   │   ├── Search.js             # Web and local grep/ripgrep search integration
-│   │   ├── TextHelpers.js        # Markdown parsing, command extraction, and rendering formatting
-│   │   └── whisper_daemon.py     # DBus daemon for real-time Whisper speech-to-text streaming
-│   ├── config/
-│   │   ├── config.qml            # Config UI routing definitions
-│   │   └── main.xml              # Config key schema definitions (API, search, STT, prayer times settings)
-│   └── ui/
-│       ├── AddEditGroupDialog.qml  # Dialog for creating/editing task groups
-│       ├── AddEditTaskDialog.qml   # Dialog for creating/editing tasks
-│       ├── ChatMessage.qml       # Visual delegates for message cards, attachments, memories, and tasks
-│       ├── CollapsibleBlock.qml  # Reusable collapsible/expandable content block component
-│       ├── ConfigGeneral.qml     # Configuration UI (API, model, search, voice, memory notes, prayer times)
-│       ├── FullRepresentation.qml # Main chat window, sidebar, memory page, tasks page, and header controls
-│       ├── PageHeader.qml        # Reusable page header with back navigation and action buttons
-│       ├── TaskItem.qml          # Individual task card with checkbox, priority, due date, subtasks
-│       ├── TasksPage.qml         # Full task management page with groups, filters, and task list
-│       └── main.qml              # Root PlasmoidItem handling representations, window flags, and focus
-├── metadata.json                 # Applet metadata, entry point, and minimum Plasma 6 version
-└── README.md
-```
-
----
-
-## Installation & Deployment
-
-To install or upgrade the plasmoid on your KDE Plasma 6 desktop:
-
-### 1. Install or Upgrade the Plasmoid
-Navigate to the root directory of this repository and run:
+## Installation
 
 ```bash
-# If installing for the first time
+# Install
 kpackagetool6 --type Plasma/Applet --install .
 
-# If upgrading an existing installation
+# Upgrade
 kpackagetool6 --type Plasma/Applet --upgrade .
-```
 
-### 2. Reload Plasma Shell
-To apply the changes and reload the applet in your panel or system tray, restart the Plasma Shell:
-
-```bash
+# Reload Plasma
 plasmashell --replace & disown
-```
 
-### 3. Run in Standalone Window (for Testing/Debugging)
-You can launch the plasmoid as a standalone application window to test interactions and inspect console logs:
-
-```bash
+# Test standalone
 plasmawindowed kdeassistant
 ```
 
-### 4. Voice Typing Setup (Optional)
-To enable voice typing, install `whisper-stream` (from whisper.cpp) and configure the STT backend in the settings panel. The DBus daemon starts automatically when voice input is activated.
+## Project Structure
 
----
+```
+contents/
+├── code/
+│   ├── ApiClient.js            # API streaming, usage tracking
+│   ├── AttachmentHelpers.js    # File MIME detection, validation
+│   ├── Database.js             # SQLite schema, CRUD operations
+│   ├── PrayerTimes.js          # Hijri calendar, prayer times
+│   ├── Search.js               # Web and local search integration
+│   ├── StreamingManager.js     # API config, message array building
+│   ├── SttHandler.js           # Speech-to-text command building
+│   ├── TaskCommandHandler.js   # Task option building, validation
+│   ├── TextHelpers.js          # Markdown, command tag parsing
+│   └── whisper_daemon.py       # DBus daemon for live STT
+├── config/
+│   └── config.qml              # Settings UI routing
+└── ui/
+    ├── main.qml                # Root plasmoid, representations
+    ├── FullRepresentation.qml  # Orchestrator: state, session, streaming
+    ├── ChatPage.qml            # Chat UI: messages, input, attachments
+    ├── ChatMessage.qml         # Message bubble delegate
+    ├── HistoryPage.qml         # Session history browser
+    ├── MemoriesPage.qml        # Memory management
+    ├── TasksPage.qml           # Task list with groups/filters
+    ├── TaskItem.qml            # Individual task card
+    ├── AddEditTaskDialog.qml   # Task create/edit dialog
+    ├── AddEditGroupDialog.qml  # Group create/edit dialog
+    ├── ConfigGeneral.qml       # Settings page
+    ├── PageHeader.qml          # Reusable header component
+    └── CollapsibleBlock.qml    # Expandable content block
+```
 
 ## License
 
-This project is licensed under the GPL License.
+GPL
