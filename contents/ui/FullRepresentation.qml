@@ -110,13 +110,15 @@ Item {
             transcribeLocally();
         } else if (backend === "cloud") {
             transcribeInCloud();
+        } else if (backend === "lms") {
+            transcribeViaLms();
         }
     }
 
     function transcribeLocally() {
-        var cli = Plasmoid.configuration.sttWhisperCliPath || "whisper-cli";
-        var model = Plasmoid.configuration.sttWhisperModelPath || "";
-        var lang = (Plasmoid.configuration.sttLanguage || "en-US").split("-")[0];
+        var cli = (Plasmoid.configuration.sttWhisperCliPath || "whisper-cli").trim();
+        var model = (Plasmoid.configuration.sttWhisperModelPath || "").trim();
+        var lang = (Plasmoid.configuration.sttLanguage || "en-US").trim().split("-")[0];
 
         var cmd = cli + " -m " + model + " -f /tmp/kde_assistant_voice.wav -l " + lang + " -otxt";
         console.log("STT_QML: Running local whisper transcription: " + cmd);
@@ -138,9 +140,9 @@ Item {
     }
 
     function transcribeInCloud() {
-        var url = Plasmoid.configuration.sttCloudUrl || "https://api.openai.com/v1/audio/transcriptions";
-        var apiKey = Plasmoid.configuration.sttCloudApiKey || Plasmoid.configuration.apiKey;
-        var lang = (Plasmoid.configuration.sttLanguage || "en-US").split("-")[0];
+        var url = (Plasmoid.configuration.sttCloudUrl || "https://api.openai.com/v1/audio/transcriptions").trim();
+        var apiKey = (Plasmoid.configuration.sttCloudApiKey || Plasmoid.configuration.apiKey).trim();
+        var lang = (Plasmoid.configuration.sttLanguage || "en-US").trim().split("-")[0];
 
         var curlCmd = "curl -s -X POST " + url + 
                       " -H \"Authorization: Bearer " + apiKey + "\"" +
@@ -163,6 +165,37 @@ Item {
                 }
             } else {
                 sttErrorText = "Cloud upload failed. curl exit " + exitCode;
+                console.log("STT_QML: " + sttErrorText + ". stderr: " + stderr);
+            }
+        }
+        executeCommandLine(curlCmd);
+    }
+
+    function transcribeViaLms() {
+        var url = (Plasmoid.configuration.sttLmsUrl || "http://localhost:1234/v1/audio/transcriptions").trim();
+        var model = (Plasmoid.configuration.sttLmsModel || "whisper-1").trim();
+        var lang = (Plasmoid.configuration.sttLanguage || "en-US").trim().split("-")[0];
+
+        var curlCmd = "curl -s -X POST " + url + 
+                      " -F file=@/tmp/kde_assistant_voice.wav" +
+                      " -F model=" + TextHelpers.escapeShellArg(model) +
+                      " -F language=" + lang;
+        console.log("STT_QML: Sending transcription request to LM Studio: " + curlCmd);
+
+        activeCommandCallback = function(stdout, stderr, exitCode) {
+            console.log("STT_QML: LM Studio response received. exitCode: " + exitCode);
+            if (exitCode === 0) {
+                try {
+                    console.log("STT_QML: LM Studio response body: " + stdout);
+                    var response = JSON.parse(stdout);
+                    var text = response.text || "";
+                    insertTextIntoInput(text);
+                } catch(e) {
+                    sttErrorText = "LM Studio JSON parse error: " + e.message;
+                    console.log("STT_QML: Parse error: " + e.message);
+                }
+            } else {
+                sttErrorText = "LM Studio upload failed. curl exit " + exitCode;
                 console.log("STT_QML: " + sttErrorText + ". stderr: " + stderr);
             }
         }
@@ -440,9 +473,23 @@ Item {
         engine: "executable"
         connectedSources: []
         onNewData: function (sourceName, data) {
+            if (sourceName.indexOf("kde_assistant_stt.log") !== -1) {
+                disconnectSource(sourceName);
+                return;
+            }
+
+            var exitCode = data["exit code"];
+            
+            // Log every state change to /tmp/kde_assistant_stt.log
+            var statusMsg = "STT_DEBUG: cmd=[" + sourceName + "] exitCode=" + exitCode + " stdout_len=" + (data["stdout"] || "").length + " stderr_len=" + (data["stderr"] || "").length + " stderr_preview=" + (data["stderr"] || "").substring(0, 100).replace(/\n/g, " ");
+            executableDataSource.connectSource("echo " + TextHelpers.escapeShellArg(statusMsg) + " >> /tmp/kde_assistant_stt.log");
+
+            if (exitCode === undefined) {
+                return;
+            }
+
             var stdout = data["stdout"] || "";
             var stderr = data["stderr"] || "";
-            var exitCode = data["exit code"] || 0;
 
             disconnectSource(sourceName);
 

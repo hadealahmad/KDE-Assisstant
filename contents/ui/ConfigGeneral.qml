@@ -22,12 +22,14 @@ QQC2.ScrollView {
     property alias cfg_userNotes: userNotes.text
 
     // Speech-to-Text configuration
-    property string cfg_sttBackend: plasmoid.configuration.sttBackend || "webspeech"
+    property string cfg_sttBackend: plasmoid.configuration.sttBackend || "disabled"
     property string cfg_sttLanguage: plasmoid.configuration.sttLanguage || "en-US"
     property alias cfg_sttWhisperCliPath: sttWhisperCli.text
     property alias cfg_sttWhisperModelPath: sttWhisperModel.text
     property alias cfg_sttCloudApiKey: sttCloudApiKey.text
     property alias cfg_sttCloudUrl: sttCloudUrl.text
+    property alias cfg_sttLmsUrl: sttLmsUrl.text
+    property string cfg_sttLmsModel: plasmoid.configuration.sttLmsModel || "whisper-1"
 
     // ── Provider preset tables ─────────────────────────────────
     // Fix #11: renamed "google" → "gemini" to avoid collision with the
@@ -591,18 +593,19 @@ QQC2.ScrollView {
             id: sttBackendCombo
             Kirigami.FormData.label: i18n("STT Backend:")
             model: [
-                { text: i18n("Whisper API (Local/Cloud)"), value: "cloud" },
+                { text: i18n("Whisper API (Cloud)"), value: "cloud" },
+                { text: i18n("LM Studio Local Server"), value: "lms" },
                 { text: i18n("Local whisper.cpp (Offline CLI)"), value: "local" },
                 { text: i18n("Disabled"), value: "disabled" }
             ]
             textRole: "text"
             currentIndex: {
                 var val = scrollRoot.cfg_sttBackend;
-                var idx = ["cloud", "local", "disabled"].indexOf(val);
-                return idx >= 0 ? idx : 2; // Default to Disabled (index 2)
+                var idx = ["cloud", "lms", "local", "disabled"].indexOf(val);
+                return idx >= 0 ? idx : 3; // Default to Disabled (index 3)
             }
             onActivated: {
-                scrollRoot.cfg_sttBackend = ["cloud", "local", "disabled"][currentIndex];
+                scrollRoot.cfg_sttBackend = ["cloud", "lms", "local", "disabled"][currentIndex];
             }
         }
 
@@ -635,21 +638,108 @@ QQC2.ScrollView {
             id: sttCloudApiKey
             Kirigami.FormData.label: i18n("API Key:")
             echoMode: QQC2.TextField.Password
-            placeholderText: i18n("Leave blank for local servers like LM Studio")
+            placeholderText: i18n("Leave blank to reuse main LLM API Key")
             visible: sttBackendCombo.currentIndex === 0
+        }
+
+        // LM Studio settings (visible if backend == 'lms')
+        QQC2.TextField {
+            id: sttLmsUrl
+            Kirigami.FormData.label: i18n("LM Studio Server URL:")
+            placeholderText: "http://localhost:1234"
+            visible: sttBackendCombo.currentIndex === 1
+        }
+
+        RowLayout {
+            Kirigami.FormData.label: i18n("Whisper Model:")
+            visible: sttBackendCombo.currentIndex === 1
+            spacing: Kirigami.Units.smallSpacing
+
+            QQC2.ComboBox {
+                id: lmsModelCombo
+                Layout.fillWidth: true
+                textRole: ""
+                model: scrollRoot.cfg_sttLmsModel ? [scrollRoot.cfg_sttLmsModel] : []
+                currentIndex: 0
+                onActivated: {
+                    scrollRoot.cfg_sttLmsModel = currentText;
+                }
+            }
+
+            QQC2.Button {
+                text: i18n("Fetch Models")
+                onClicked: {
+                    var baseUrl = sttLmsUrl.text.trim();
+                    if (!baseUrl) {
+                        baseUrl = "http://localhost:1234";
+                    }
+                    var match = baseUrl.match(/^https?:\/\/[^\/]+/);
+                    var origin = match ? match[0] : baseUrl;
+                    var modelsUrl = origin + "/v1/models";
+                    
+                    var xhr = new XMLHttpRequest();
+                    xhr.open("GET", modelsUrl, true);
+                    xhr.onreadystatechange = function() {
+                        if (xhr.readyState === XMLHttpRequest.DONE) {
+                            if (xhr.status === 200) {
+                                try {
+                                    var resp = JSON.parse(xhr.responseText);
+                                    var modelsList = [];
+                                    if (resp.data && Array.isArray(resp.data)) {
+                                        for (var i = 0; i < resp.data.length; i++) {
+                                            var m = resp.data[i];
+                                            modelsList.push(m.id);
+                                        }
+                                    }
+                                    if (modelsList.length > 0) {
+                                        lmsModelCombo.model = modelsList;
+                                        var savedModel = scrollRoot.cfg_sttLmsModel;
+                                        var idx = modelsList.indexOf(savedModel);
+                                        lmsModelCombo.currentIndex = idx >= 0 ? idx : 0;
+                                        scrollRoot.cfg_sttLmsModel = modelsList[lmsModelCombo.currentIndex];
+                                        lmsStatusLabel.text = i18n("Fetched %1 models successfully.").arg(modelsList.length);
+                                        lmsStatusLabel.color = "green";
+                                    } else {
+                                        lmsStatusLabel.text = i18n("No models loaded.");
+                                        lmsStatusLabel.color = "orange";
+                                    }
+                                } catch (e) {
+                                    lmsStatusLabel.text = i18n("Parse error: %1").arg(e.message);
+                                    lmsStatusLabel.color = "red";
+                                }
+                            } else {
+                                lmsStatusLabel.text = i18n("Connection failed (HTTP %1).").arg(xhr.status);
+                                lmsStatusLabel.color = "red";
+                            }
+                        }
+                    };
+                    lmsStatusLabel.text = i18n("Connecting...");
+                    lmsStatusLabel.color = "gray";
+                    xhr.send();
+                }
+            }
+        }
+
+        QQC2.Label {
+            id: lmsStatusLabel
+            font.italic: true
+            font.pixelSize: Kirigami.Theme.smallFont.pixelSize
+            visible: sttBackendCombo.currentIndex === 1
+            Kirigami.FormData.label: ""
+            text: ""
         }
 
         // Local STT settings (visible if backend == 'local')
         QQC2.TextField {
             id: sttWhisperCli
             Kirigami.FormData.label: i18n("whisper.cpp Path:")
-            visible: sttBackendCombo.currentIndex === 1
+            visible: sttBackendCombo.currentIndex === 2
         }
 
         QQC2.TextField {
             id: sttWhisperModel
             Kirigami.FormData.label: i18n("Model Path (.bin):")
-            visible: sttBackendCombo.currentIndex === 1
+            visible: sttBackendCombo.currentIndex === 2
         }
     }
 }

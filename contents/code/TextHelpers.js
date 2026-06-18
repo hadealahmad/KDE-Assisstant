@@ -50,3 +50,8 @@ function parseCommandTag(text) {
 
     return null;
 }
+
+function escapeShellArg(arg) {
+    if (!arg) return "''";
+    return "'" + arg.replace(/'/g, "'\\''") + "'";
+}

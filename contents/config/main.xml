@@ -65,5 +65,11 @@
         <entry name="sttCloudUrl" type="String">
             <default>https://api.openai.com/v1/audio/transcriptions</default>
         </entry>
+        <entry name="sttLmsUrl" type="String">
+            <default>http://localhost:1234/v1/audio/transcriptions</default>
+        </entry>
+        <entry name="sttLmsModel" type="String">
+            <default>whisper-1</default>
+        </entry>
     </group>
 </kcfg>
