@@ -1,6 +1,6 @@
 # KDE Assistant 🧠💬
 
-KDE Assistant is a premium, feature-rich AI chat plasmoid designed for the **KDE Plasma 6** desktop environment. It resides in your panel or on your desktop, bringing a fully conversational LLM assistant, local memory, web search, and shell execution tools directly to your workspace.
+KDE Assistant is a premium, feature-rich AI chat plasmoid designed for the **KDE Plasma 6** desktop environment. It resides in your panel or on your desktop, bringing a fully conversational LLM assistant, local memory, web search, voice input, file attachments, and shell execution tools directly to your workspace.
 
 ---
 
@@ -23,6 +23,17 @@ KDE Assistant is a premium, feature-rich AI chat plasmoid designed for the **KDE
   - Performs real-time web searches using **DuckDuckGo**, **Tavily**, **Searxng**, or **Google**.
   - Performs local code searches using **grep** and **ripgrep**.
 
+- **🎤 Voice Typing (Speech-to-Text):**
+  - Dictate messages directly into the chat input using your microphone.
+  - Supports multiple backends: **Local Whisper.cpp** (via `whisper-stream`), **Remote Whisper API** (OpenAI-compatible), and **LM Studio Whisper**.
+  - Runs a lightweight DBus daemon (`whisper_daemon.py`) for real-time streaming transcription.
+
+- **📎 File Attachments:**
+  - Attach files to messages before sending them to the LLM.
+  - Supports **text files** (source code, configs, markdown, etc.), **images** (PNG, JPG, GIF, WebP, BMP), and **PDFs**.
+  - Attached file content is displayed in collapsible blocks within the chat for clean, organized presentation.
+  - 5 MB per-file size limit with validation and MIME type detection.
+
 - **📌 Smart Window Pinning:**
   - Includes a pin toggle button in the chat header.
   - Pinning disables automatic auto-close/blur (`hideOnWindowDeactivate`) and applies `Qt.WindowStaysOnTopHint` to keep the assistant open and floating above other windows.
@@ -38,19 +49,23 @@ KDE Assistant is a premium, feature-rich AI chat plasmoid designed for the **KDE
 .
 ├── contents/
 │   ├── code/
-│   │   ├── ApiClient.js     # API communications, streaming parser, and memory injector
-│   │   ├── Database.js       # SQLite database schema, session, and memory management
-│   │   ├── Search.js         # Web and local grep/ripgrep search integration
-│   │   └── TextHelpers.js    # Markdown parsing, command extraction, and rendering formatting
+│   │   ├── ApiClient.js          # API communications, streaming parser, and memory injector
+│   │   ├── AttachmentHelpers.js  # File attachment utilities, MIME detection, and validation
+│   │   ├── Database.js           # SQLite database schema, session, and memory management
+│   │   ├── Search.js             # Web and local grep/ripgrep search integration
+│   │   ├── TextHelpers.js        # Markdown parsing, command extraction, and rendering formatting
+│   │   └── whisper_daemon.py     # DBus daemon for real-time Whisper speech-to-text streaming
 │   ├── config/
-│   │   ├── config.qml        # Config UI routing definitions
-│   │   └── main.xml          # Config key schema definitions
+│   │   ├── config.qml            # Config UI routing definitions
+│   │   └── main.xml              # Config key schema definitions (API, search, STT settings)
 │   └── ui/
-│       ├── ChatMessage.qml   # Visual delegates for message cards, terminal tools, and memories
-│       ├── ConfigGeneral.qml # Configuration UI (API select, model query, search engine, memory notes)
+│       ├── ChatMessage.qml       # Visual delegates for message cards, attachments, and memories
+│       ├── CollapsibleBlock.qml  # Reusable collapsible/expandable content block component
+│       ├── ConfigGeneral.qml     # Configuration UI (API, model, search, voice, memory notes)
 │       ├── FullRepresentation.qml # Main chat window, sidebar, memory page, and header controls
-│       └── main.qml          # Root PlasmoidItem handling representations, window flags, and focus
-├── metadata.json             # Applet metadata, entry point, and minimum Plasma 6 version
+│       ├── PageHeader.qml        # Reusable page header with back navigation and action buttons
+│       └── main.qml              # Root PlasmoidItem handling representations, window flags, and focus
+├── metadata.json                 # Applet metadata, entry point, and minimum Plasma 6 version
 └── README.md
 ```
 
@@ -84,6 +99,9 @@ You can launch the plasmoid as a standalone application window to test interacti
 ```bash
 plasmawindowed kdeassistant
 ```
+
+### 4. Voice Typing Setup (Optional)
+To enable voice typing, install `whisper-stream` (from whisper.cpp) and configure the STT backend in the settings panel. The DBus daemon starts automatically when voice input is activated.
 
 ---
 
