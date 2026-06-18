@@ -519,6 +519,81 @@ QQC2.ScrollView {
             to: 200
         }
 
+        // ── SECTION: Prayer Times ─────────────────────────────
+
+        Item {
+            Kirigami.FormData.isSection: true
+            Kirigami.FormData.label: i18n("Prayer Times")
+        }
+
+        QQC2.Label {
+            text: i18n("Location and calculation method for Islamic prayer times.\nThe AI will use these when you ask about prayer times.")
+            color: Kirigami.Theme.disabledTextColor
+            font.pointSize: Kirigami.Theme.smallFont.pointSize
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+        }
+
+        RowLayout {
+            Kirigami.FormData.label: i18n("Coordinates:")
+            spacing: Kirigami.Units.smallSpacing
+
+            QQC2.TextField {
+                id: prayerLat
+                Layout.fillWidth: true
+                placeholderText: i18n("Latitude (e.g. 52.52)")
+                Component.onCompleted: text = plasmoid.configuration.prayerLatitude || ""
+                onTextChanged: plasmoid.configuration.prayerLatitude = parseFloat(text) || 0
+            }
+
+            QQC2.Label {
+                text: ","
+            }
+
+            QQC2.TextField {
+                id: prayerLng
+                Layout.fillWidth: true
+                placeholderText: i18n("Longitude (e.g. 13.405)")
+                Component.onCompleted: text = plasmoid.configuration.prayerLongitude || ""
+                onTextChanged: plasmoid.configuration.prayerLongitude = parseFloat(text) || 0
+            }
+        }
+
+        QQC2.Label {
+            text: i18n("Find your coordinates at google.com/maps")
+            color: Kirigami.Theme.disabledTextColor
+            font.pointSize: Kirigami.Theme.smallFont.pointSize
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+        }
+
+        property var _methodNames: [
+            i18n("Muslim World League (MWL)"),
+            i18n("Islamic Society of North America (ISNA)"),
+            i18n("Umm Al-Qura University, Makkah"),
+            i18n("Egyptian General Authority of Survey"),
+            i18n("Institute of Geophysics, Tehran"),
+            i18n("Gulf Region"),
+            i18n("Kuwait"),
+            i18n("Qatar"),
+            i18n("MUIS, Singapore"),
+            i18n("Diyanet, Turkey"),
+            i18n("Moonsighting Committee Worldwide")
+        ]
+        property var _methodIds: [2, 3, 4, 5, 7, 8, 9, 10, 11, 13, 15]
+
+        QQC2.ComboBox {
+            id: prayerMethodCombo
+            Kirigami.FormData.label: i18n("Calculation Method:")
+            model: scrollRoot._methodNames
+            currentIndex: {
+                var m = plasmoid.configuration.prayerMethod || 3;
+                var idx = scrollRoot._methodIds.indexOf(m);
+                return idx >= 0 ? idx : 1; // Default to ISNA (index 1)
+            }
+            onActivated: plasmoid.configuration.prayerMethod = scrollRoot._methodIds[currentIndex]
+        }
+
         // ── SECTION: Speech-to-Text (STT) ──────────────────────────
 
         Item {

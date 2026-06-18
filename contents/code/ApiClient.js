@@ -9,6 +9,7 @@
 .pragma library
     .import "Search.js" as Search
         .import "TextHelpers.js" as TextHelpers
+            .import "PrayerTimes.js" as PrayerTimes
 
 // ──────────────────────────────────────────────
 // Active request tracking (one at a time)
@@ -119,6 +120,10 @@ function sendMessage(messages, config, onStreaming, onComplete, onError) {
         ? config.systemPrompt.trim()
         : "You are a helpful assistant.";
 
+    // ── Inject current date/time context (Gregorian + Hijri) ──
+    var dateTimeContext = PrayerTimes.buildDateTimeContext();
+    baseSystemPrompt = dateTimeContext + "\n\n" + baseSystemPrompt;
+
     // Add tools support instructions
     baseSystemPrompt += "\n\n" +
         "CRITICAL INSTRUCTIONS FOR TOOL USAGE:\n" +
@@ -151,6 +156,13 @@ function sendMessage(messages, config, onStreaming, onComplete, onError) {
         "   Format: `[REMEMBER: fact to remember]`\n" +
         "   Example: `[REMEMBER: User prefers Python over JavaScript]`, `[REMEMBER: Main project is located at /run/media/hadi/SSD2/Coding/KDE Assisstant]`\n" +
         "   *Only use this when the user explicitly asks you to remember something, or when they share clearly persistent personal information. Do not overuse it.*";
+
+    // ── Inject prayer times instructions ──
+    baseSystemPrompt += PrayerTimes.buildPrayerTimesInstructions(
+        config.prayerLatitude,
+        config.prayerLongitude,
+        config.prayerMethod
+    );
 
     // ── Inject user notes (Approach 1 — manual notes) ──────────
     if (config.userNotes && config.userNotes.trim() !== "") {

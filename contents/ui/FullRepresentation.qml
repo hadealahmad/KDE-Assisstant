@@ -540,7 +540,10 @@ Item {
             grepProvider: Plasmoid.configuration.grepProvider,
             grepMaxResults: Plasmoid.configuration.grepMaxResults,
             userNotes: Plasmoid.configuration.userNotes,
-            memories: memStrings
+            memories: memStrings,
+            prayerLatitude: Plasmoid.configuration.prayerLatitude,
+            prayerLongitude: Plasmoid.configuration.prayerLongitude,
+            prayerMethod: Plasmoid.configuration.prayerMethod
         };
     }
 
