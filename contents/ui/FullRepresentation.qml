@@ -610,10 +610,11 @@ Item {
 
         // Handle transcribedText(QString) signal from python daemon
         function dbusTranscribedText(text) {
-            console.log("STT_QML: Received live DBus STT text: " + text);
+            var textStr = String(text);
+            console.log("STT_QML: Received live DBus STT text: " + textStr);
             if (isRecording) {
                 var prefix = originalInputText.trim();
-                var cleanText = text.trim();
+                var cleanText = textStr.trim();
                 if (cleanText.length > 0) {
                     if (prefix.length > 0) {
                         inputArea.text = prefix + " " + cleanText;
