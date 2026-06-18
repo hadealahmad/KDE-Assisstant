@@ -11,6 +11,7 @@ import org.kde.plasma.plasmoid
 import org.kde.plasma.components as PlasmaComponents
 import org.kde.kirigami as Kirigami
 import org.kde.plasma.plasma5support as Plasma5Support
+import QtWebEngine
 
 import "../code/ApiClient.js" as Api
 import "../code/Database.js" as Db
@@ -42,6 +43,144 @@ Item {
         property: "flags"
         value: root.keepOpen ? (_originalFlags | Qt.WindowStaysOnTopHint) : _originalFlags
         when: fullRepRoot.window !== null && _originalFlags !== 0
+    }
+
+    // ── Speech-to-Text State & Logic ─────────────────────────────
+    property bool isRecording: false
+    property string sttErrorText: ""
+    property string activeSttCommand: ""
+
+    WebEngineView {
+        id: hiddenSttWebEngine
+        visible: false
+        url: Qt.resolvedUrl("stt.html")
+
+        onFeaturePermissionRequested: function(securityOrigin, feature) {
+            if (feature === WebEngineView.MediaAudioCapture) {
+                grantFeaturePermission(securityOrigin, feature, true);
+            }
+        }
+
+        onJavaScriptConsoleMessage: function(level, message, lineNumber, sourceId) {
+            if (message.startsWith("STT_TRANSCRIPT:")) {
+                var transcript = message.substring("STT_TRANSCRIPT:".length);
+                insertTextIntoInput(transcript);
+                isRecording = false;
+            } else if (message.startsWith("STT_ERROR:")) {
+                sttErrorText = message.substring("STT_ERROR:".length);
+                isRecording = false;
+            } else if (message.startsWith("STT_STATUS:LISTENING")) {
+                isRecording = true;
+            } else if (message.startsWith("STT_STATUS:STOPPED")) {
+                isRecording = false;
+            }
+        }
+    }
+
+    function insertTextIntoInput(text) {
+        if (text && text.trim().length > 0) {
+            if (inputArea.text.length > 0) {
+                inputArea.text += " " + text.trim();
+            } else {
+                inputArea.text = text.trim();
+            }
+            inputArea.forceActiveFocus();
+        }
+    }
+
+    function toggleRecording() {
+        var backend = Plasmoid.configuration.sttBackend || "webspeech";
+        if (backend === "disabled") return;
+
+        if (isRecording) {
+            stopRecordingSession();
+        } else {
+            startRecordingSession();
+        }
+    }
+
+    function startRecordingSession() {
+        sttErrorText = "";
+        var backend = Plasmoid.configuration.sttBackend || "webspeech";
+        var lang = Plasmoid.configuration.sttLanguage || "en-US";
+
+        if (backend === "webspeech") {
+            hiddenSttWebEngine.runJavaScript("startSpeechRecognition('" + lang + "')");
+        } else {
+            isRecording = true;
+            activeSttCommand = "arecord -f S16_LE -r 16000 -c 1 /tmp/kde_assistant_voice.wav";
+            executeCommandLine(activeSttCommand);
+        }
+    }
+
+    function stopRecordingSession() {
+        var backend = Plasmoid.configuration.sttBackend || "webspeech";
+
+        if (backend === "webspeech") {
+            hiddenSttWebEngine.runJavaScript("stopSpeechRecognition()");
+        } else {
+            activeCommandCallback = function(stdout, stderr, exitCode) {
+                isRecording = false;
+                processRecordedAudio();
+            }
+            executeCommandLine("killall arecord");
+        }
+    }
+
+    function processRecordedAudio() {
+        var backend = Plasmoid.configuration.sttBackend || "webspeech";
+        if (backend === "local") {
+            transcribeLocally();
+        } else if (backend === "cloud") {
+            transcribeInCloud();
+        }
+    }
+
+    function transcribeLocally() {
+        var cli = Plasmoid.configuration.sttWhisperCliPath || "whisper-cli";
+        var model = Plasmoid.configuration.sttWhisperModelPath || "";
+        var lang = (Plasmoid.configuration.sttLanguage || "en-US").split("-")[0];
+
+        var cmd = cli + " -m " + model + " -f /tmp/kde_assistant_voice.wav -l " + lang + " -otxt";
+
+        activeCommandCallback = function(stdout, stderr, exitCode) {
+            if (exitCode === 0) {
+                activeCommandCallback = function(catOut, catErr, catExit) {
+                    insertTextIntoInput(catOut);
+                }
+                executeCommandLine("cat /tmp/kde_assistant_voice.wav.txt");
+            } else {
+                sttErrorText = "Local Whisper transcription failed. Code " + exitCode;
+            }
+        }
+        executeCommandLine(cmd);
+    }
+
+    function transcribeInCloud() {
+        var url = Plasmoid.configuration.sttCloudUrl || "https://api.openai.com/v1/audio/transcriptions";
+        var apiKey = Plasmoid.configuration.sttCloudApiKey || Plasmoid.configuration.apiKey;
+        var lang = (Plasmoid.configuration.sttLanguage || "en-US").split("-")[0];
+
+        var curlCmd = "curl -s -X POST " + url + 
+                      " -H \"Authorization: Bearer " + apiKey + "\"" +
+                      " -F file=@/tmp/kde_assistant_voice.wav" +
+                      " -F model=whisper-1" +
+                      " -F language=" + lang;
+
+        activeCommandCallback = function(stdout, stderr, exitCode) {
+            if (exitCode === 0) {
+                try {
+                    var response = JSON.parse(stdout);
+                    var text = response.text || "";
+                    insertTextIntoInput(text);
+                } catch(e) {
+                    sttErrorText = "Cloud JSON parse error: " + e.message;
+                }
+            } else {
+                sttErrorText = "Cloud upload failed. curl exit " + exitCode;
+            }
+        }
+        executeCommandLine(curlCmd);
     }
 
     // ── Command execution state ──────────────────────────────────
@@ -947,6 +1086,19 @@ Item {
                         onClicked: fullRepRoot.sendMessage()
                         PlasmaComponents.ToolTip {
                             text: "Send (Enter)"
+                        }
+                    }
+
+                    // Speech-to-Text Button
+                    PlasmaComponents.ToolButton {
+                        id: micBtn
+                        icon.name: isRecording ? "audio-input-microphone" : "audio-input-microphone-muted"
+                        checked: isRecording
+                        checkable: true
+                        visible: (Plasmoid.configuration.sttBackend || "webspeech") !== "disabled"
+                        onClicked: toggleRecording()
+                        PlasmaComponents.ToolTip {
+                            text: isRecording ? (sttErrorText.length > 0 ? "Error: " + sttErrorText + " (Click to stop)" : "Recording... Click to Stop & Transcribe") : "Voice Typing (Speech-to-Text)"
                         }
                     }
 
