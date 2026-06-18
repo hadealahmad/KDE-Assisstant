@@ -15,12 +15,20 @@ ColumnLayout {
     id: historyPageRoot
     spacing: 0
 
-    property var sessionModel: null
+    property var db: null
     property string currentSessionId: ""
+    property var sessions: []
 
     signal backClicked()
     signal loadSession(string sessionId, string sessionTitle)
     signal startNewSession()
+
+    function reload() {
+        if (!db) return;
+        sessions = Db.loadSessions(db);
+    }
+
+    Component.onCompleted: reload()
 
     // Header
     PageHeader {
@@ -41,7 +49,7 @@ ColumnLayout {
         Layout.fillWidth: true
         Layout.fillHeight: true
         clip: true
-        model: historyPageRoot.sessionModel
+        model: historyPageRoot.sessions
         spacing: Kirigami.Units.smallSpacing
         topMargin: Kirigami.Units.smallSpacing
         bottomMargin: Kirigami.Units.smallSpacing
@@ -69,12 +77,11 @@ ColumnLayout {
         }
 
         delegate: Controls.ItemDelegate {
-            required property string id
-            required property string title
-            required property int updated_at
+            required property var modelData
+            required property int index
 
             width: sessionListView.width - sessionListView.leftMargin - sessionListView.rightMargin - Kirigami.Units.gridUnit * 1.5
-            highlighted: id === historyPageRoot.currentSessionId
+            highlighted: modelData.id === historyPageRoot.currentSessionId
             padding: Kirigami.Units.smallSpacing
 
             contentItem: RowLayout {
@@ -84,14 +91,14 @@ ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 2
                     Controls.Label {
-                        text: title || "Untitled"
+                        text: modelData.title || "Untitled"
                         elide: Text.ElideRight
                         Layout.fillWidth: true
-                        font.bold: id === historyPageRoot.currentSessionId
+                        font.bold: modelData.id === historyPageRoot.currentSessionId
                         font.pointSize: Kirigami.Theme.defaultFont.pointSize
                     }
                     Controls.Label {
-                        text: Qt.formatDateTime(new Date(updated_at), "dd MMM yyyy, hh:mm")
+                        text: Qt.formatDateTime(new Date(modelData.updated_at), "dd MMM yyyy, hh:mm")
                         font.pointSize: Kirigami.Theme.smallFont.pointSize
                         color: Kirigami.Theme.disabledTextColor
                         Layout.fillWidth: true
@@ -101,11 +108,11 @@ ColumnLayout {
                 PlasmaComponents.ToolButton {
                     icon.name: "edit-delete"
                     onClicked: {
-                        Db.deleteSession(fullRepRoot.db, id);
-                        if (id === historyPageRoot.currentSessionId) {
+                        Db.deleteSession(historyPageRoot.db, modelData.id);
+                        if (modelData.id === historyPageRoot.currentSessionId) {
                             historyPageRoot.startNewSession();
                         } else {
-                            fullRepRoot.loadSessionList();
+                            historyPageRoot.reload();
                         }
                     }
                     PlasmaComponents.ToolTip {
@@ -114,7 +121,7 @@ ColumnLayout {
                 }
             }
 
-            onClicked: historyPageRoot.loadSession(id, title)
+            onClicked: historyPageRoot.loadSession(modelData.id, modelData.title)
         }
     }
 }

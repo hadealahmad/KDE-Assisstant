@@ -43,6 +43,7 @@ Item {
     property var pendingAttachments: []
     property string attachmentErrorText: ""
     property var recentlyCreatedTaskTitles: []
+    property var chatMessages: []
 
     property int _originalFlags: 0
 
@@ -377,21 +378,21 @@ Item {
 
             createdTasks.push({ title: taskTitle, opts: taskOpts, id: savedTaskId });
 
-            if (i === 0 && assistantIndex >= 0 && assistantIndex < messageModel.count) {
-                messageModel.setProperty(assistantIndex, "role", "task");
-                messageModel.setProperty(assistantIndex, "content", "");
-                messageModel.setProperty(assistantIndex, "taskTitle", taskTitle);
-                messageModel.setProperty(assistantIndex, "taskGroupId", taskOpts.groupId || "");
-                messageModel.setProperty(assistantIndex, "taskPriority", taskOpts.priority || 0);
-                messageModel.setProperty(assistantIndex, "taskDueDate", taskOpts.dueDate ? new Date(taskOpts.dueDate).toLocaleDateString() : "");
+            if (i === 0 && assistantIndex >= 0 && assistantIndex < chatMessageModel.count) {
+                chatMessageModel.setProperty(assistantIndex, "role", "task");
+                chatMessageModel.setProperty(assistantIndex, "content", "");
+                chatMessageModel.setProperty(assistantIndex, "taskTitle", taskTitle);
+                chatMessageModel.setProperty(assistantIndex, "taskGroupId", taskOpts.groupId || "");
+                chatMessageModel.setProperty(assistantIndex, "taskPriority", taskOpts.priority || 0);
+                chatMessageModel.setProperty(assistantIndex, "taskDueDate", taskOpts.dueDate ? new Date(taskOpts.dueDate).toLocaleDateString() : "");
             } else {
-                var newMsgIndex = messageModel.count;
-                messageModel.append(TextHelpers.createDefaultMessage("task", ""));
-                messageModel.setProperty(newMsgIndex, "role", "task");
-                messageModel.setProperty(newMsgIndex, "taskTitle", taskTitle);
-                messageModel.setProperty(newMsgIndex, "taskGroupId", taskOpts.groupId || "");
-                messageModel.setProperty(newMsgIndex, "taskPriority", taskOpts.priority || 0);
-                messageModel.setProperty(newMsgIndex, "taskDueDate", taskOpts.dueDate ? new Date(taskOpts.dueDate).toLocaleDateString() : "");
+                var newMsgIndex = chatMessageModel.count;
+                chatMessageModel.append(TextHelpers.createDefaultMessage("task", ""));
+                chatMessageModel.setProperty(newMsgIndex, "role", "task");
+                chatMessageModel.setProperty(newMsgIndex, "taskTitle", taskTitle);
+                chatMessageModel.setProperty(newMsgIndex, "taskGroupId", taskOpts.groupId || "");
+                chatMessageModel.setProperty(newMsgIndex, "taskPriority", taskOpts.priority || 0);
+                chatMessageModel.setProperty(newMsgIndex, "taskDueDate", taskOpts.dueDate ? new Date(taskOpts.dueDate).toLocaleDateString() : "");
             }
 
             Db.saveMessage(db, currentSessionId, "task", JSON.stringify({
@@ -433,12 +434,12 @@ Item {
         activeAssistantIndex = assistantIndex;
 
         if (cmdTag.type === "system") {
-            messageModel.setProperty(assistantIndex, "role", "system_command");
-            messageModel.setProperty(assistantIndex, "content", "⚙ Running command: `" + cmdTag.command + "`...");
-            messageModel.setProperty(assistantIndex, "isCommand", true);
-            messageModel.setProperty(assistantIndex, "commandCode", cmdTag.command);
-            messageModel.setProperty(assistantIndex, "commandOutput", "");
-            messageModel.setProperty(assistantIndex, "commandStatus", "running");
+            chatMessageModel.setProperty(assistantIndex, "role", "system_command");
+            chatMessageModel.setProperty(assistantIndex, "content", "⚙ Running command: `" + cmdTag.command + "`...");
+            chatMessageModel.setProperty(assistantIndex, "isCommand", true);
+            chatMessageModel.setProperty(assistantIndex, "commandCode", cmdTag.command);
+            chatMessageModel.setProperty(assistantIndex, "commandOutput", "");
+            chatMessageModel.setProperty(assistantIndex, "commandStatus", "running");
 
             var systemCallback = function (stdout, stderr, exitCode) {
                 var outputText = stdout || "";
@@ -456,9 +457,9 @@ Item {
                     outputText = "(No output)";
                 }
 
-                messageModel.setProperty(assistantIndex, "content", "⚙ Ran command: `" + cmdTag.command + "`");
-                messageModel.setProperty(assistantIndex, "commandOutput", outputText);
-                messageModel.setProperty(assistantIndex, "commandStatus", exitCode === 0 ? "success" : "failed");
+                chatMessageModel.setProperty(assistantIndex, "content", "⚙ Ran command: `" + cmdTag.command + "`");
+                chatMessageModel.setProperty(assistantIndex, "commandOutput", outputText);
+                chatMessageModel.setProperty(assistantIndex, "commandStatus", exitCode === 0 ? "success" : "failed");
 
                 // Save to DB
                 var dbContent = JSON.stringify({
@@ -483,12 +484,12 @@ Item {
                 grepCmd = Api.Search.buildGrepCommand(cmdTag.pattern, cmdTag.path, limit);
             }
 
-            messageModel.setProperty(assistantIndex, "role", "system_command");
-            messageModel.setProperty(assistantIndex, "content", "🔍 Searching local files for `" + cmdTag.pattern + "`...");
-            messageModel.setProperty(assistantIndex, "isCommand", true);
-            messageModel.setProperty(assistantIndex, "commandCode", grepCmd);
-            messageModel.setProperty(assistantIndex, "commandOutput", "");
-            messageModel.setProperty(assistantIndex, "commandStatus", "running");
+            chatMessageModel.setProperty(assistantIndex, "role", "system_command");
+            chatMessageModel.setProperty(assistantIndex, "content", "🔍 Searching local files for `" + cmdTag.pattern + "`...");
+            chatMessageModel.setProperty(assistantIndex, "isCommand", true);
+            chatMessageModel.setProperty(assistantIndex, "commandCode", grepCmd);
+            chatMessageModel.setProperty(assistantIndex, "commandOutput", "");
+            chatMessageModel.setProperty(assistantIndex, "commandStatus", "running");
 
             var grepCallback = function (stdout, stderr, exitCode) {
                 var outputText = stdout;
@@ -496,9 +497,9 @@ Item {
                     outputText = "No search results found.";
                 }
 
-                messageModel.setProperty(assistantIndex, "content", "🔍 Searched local files for `" + cmdTag.pattern + "`");
-                messageModel.setProperty(assistantIndex, "commandOutput", outputText);
-                messageModel.setProperty(assistantIndex, "commandStatus", exitCode === 0 ? "success" : "failed");
+                chatMessageModel.setProperty(assistantIndex, "content", "🔍 Searched local files for `" + cmdTag.pattern + "`");
+                chatMessageModel.setProperty(assistantIndex, "commandOutput", outputText);
+                chatMessageModel.setProperty(assistantIndex, "commandStatus", exitCode === 0 ? "success" : "failed");
 
                 // Save to DB
                 var dbContent = JSON.stringify({
@@ -515,10 +516,10 @@ Item {
             };
             executeCommandLine(grepCmd, grepCallback);
         } else if (cmdTag.type === "setting") {
-            messageModel.setProperty(assistantIndex, "role", "setting_approval");
-            messageModel.setProperty(assistantIndex, "content", cmdTag.command + "\n\n" + cmdTag.description);
-            messageModel.setProperty(assistantIndex, "approvalStatus", "pending");
-            messageModel.setProperty(assistantIndex, "approvalResult", "");
+            chatMessageModel.setProperty(assistantIndex, "role", "setting_approval");
+            chatMessageModel.setProperty(assistantIndex, "content", cmdTag.command + "\n\n" + cmdTag.description);
+            chatMessageModel.setProperty(assistantIndex, "approvalStatus", "pending");
+            chatMessageModel.setProperty(assistantIndex, "approvalResult", "");
             chatPage.positionViewAtEnd();
         } else if (cmdTag.type === "remember") {
             var memContent = (cmdTag.content || "").trim();
@@ -529,10 +530,10 @@ Item {
             loadMemoryList();
 
             // Convert the assistant message to a memory card in the chat
-            messageModel.setProperty(assistantIndex, "role", "memory");
-            messageModel.setProperty(assistantIndex, "content", "");
-            messageModel.setProperty(assistantIndex, "memoryContent", memContent);
-            messageModel.setProperty(assistantIndex, "memoryId", memId);
+            chatMessageModel.setProperty(assistantIndex, "role", "memory");
+            chatMessageModel.setProperty(assistantIndex, "content", "");
+            chatMessageModel.setProperty(assistantIndex, "memoryContent", memContent);
+            chatMessageModel.setProperty(assistantIndex, "memoryId", memId);
             chatPage.positionViewAtEnd();
 
             // Persist the memory card in the DB so it survives reload
@@ -605,12 +606,12 @@ Item {
             }
 
             // Convert assistant message to task card
-            messageModel.setProperty(assistantIndex, "role", "task");
-            messageModel.setProperty(assistantIndex, "content", "");
-            messageModel.setProperty(assistantIndex, "taskTitle", taskTitle);
-            messageModel.setProperty(assistantIndex, "taskGroupId", taskOpts.groupId || "");
-            messageModel.setProperty(assistantIndex, "taskPriority", taskOpts.priority || 0);
-            messageModel.setProperty(assistantIndex, "taskDueDate", taskOpts.dueDate ? new Date(taskOpts.dueDate).toLocaleDateString() : "");
+            chatMessageModel.setProperty(assistantIndex, "role", "task");
+            chatMessageModel.setProperty(assistantIndex, "content", "");
+            chatMessageModel.setProperty(assistantIndex, "taskTitle", taskTitle);
+            chatMessageModel.setProperty(assistantIndex, "taskGroupId", taskOpts.groupId || "");
+            chatMessageModel.setProperty(assistantIndex, "taskPriority", taskOpts.priority || 0);
+            chatMessageModel.setProperty(assistantIndex, "taskDueDate", taskOpts.dueDate ? new Date(taskOpts.dueDate).toLocaleDateString() : "");
             chatPage.positionViewAtEnd();
 
             // Save task card in DB so it survives reload
@@ -641,15 +642,15 @@ Item {
 
     function resumeStreaming(updatedMessages) {
         isStreaming = true;
-        var assistantIndex = messageModel.count;
-        messageModel.append(TextHelpers.createDefaultMessage("assistant", ""));
+        var assistantIndex = chatMessageModel.count;
+        chatMessageModel.append(TextHelpers.createDefaultMessage("assistant", ""));
         chatPage.positionViewAtEnd();
 
         var config = getApiConfig();
 
         Api.sendMessage(updatedMessages, config, function (accumulated) {
-            if (assistantIndex < messageModel.count) {
-                messageModel.setProperty(assistantIndex, "content", TextHelpers.preprocessMarkdown(accumulated));
+            if (assistantIndex < chatMessageModel.count) {
+                chatMessageModel.setProperty(assistantIndex, "content", TextHelpers.preprocessMarkdown(accumulated));
             }
             chatPage.positionViewAtEnd();
         }, function (finalText, usage) {
@@ -677,8 +678,8 @@ Item {
                 if (cmdTag.type === "task" || cmdTag.type === "add_task") {
                     var tt = (cmdTag.title || "").trim().toLowerCase();
                     if (tt && recentlyCreatedTaskTitles.indexOf(tt) !== -1) {
-                        if (assistantIndex < messageModel.count) {
-                            messageModel.setProperty(assistantIndex, "content", "");
+                        if (assistantIndex < chatMessageModel.count) {
+                            chatMessageModel.setProperty(assistantIndex, "content", "");
                         }
                         chatPage.positionViewAtEnd();
                         loadSessionList();
@@ -688,18 +689,18 @@ Item {
                 handleParsedCommand(cmdTag, assistantIndex);
                 return;
             }
-            if (assistantIndex < messageModel.count) {
+            if (assistantIndex < chatMessageModel.count) {
                 var processed = TextHelpers.preprocessMarkdown(finalText);
-                messageModel.setProperty(assistantIndex, "content", processed);
+                chatMessageModel.setProperty(assistantIndex, "content", processed);
                 Db.saveMessage(db, currentSessionId, "assistant", finalText);
             }
             chatPage.positionViewAtEnd();
             loadSessionList();
         }, function (errorMsg) {
             isStreaming = false;
-            if (assistantIndex < messageModel.count) {
-                messageModel.setProperty(assistantIndex, "content", errorMsg);
-                messageModel.setProperty(assistantIndex, "isError", true);
+            if (assistantIndex < chatMessageModel.count) {
+                chatMessageModel.setProperty(assistantIndex, "content", errorMsg);
+                chatMessageModel.setProperty(assistantIndex, "isError", true);
             }
             chatPage.positionViewAtEnd();
         });
@@ -716,13 +717,13 @@ Item {
 
     function updateContextUsage() {
         var config = getApiConfig();
-        var result = Streaming.calculateContextUsage(config, messageModel, contextMaxChars, AttachmentHelpers);
+        var result = Streaming.calculateContextUsage(config, chatMessageModel, contextMaxChars, AttachmentHelpers);
         contextUsedChars = result.usedChars;
         contextUsagePercent = result.percent;
     }
 
     function approveSetting(command, description, assistantIndex) {
-        messageModel.setProperty(assistantIndex, "approvalStatus", "running");
+        chatMessageModel.setProperty(assistantIndex, "approvalStatus", "running");
 
         var approvalCallback = function (stdout, stderr, exitCode) {
             var statusStr = exitCode === 0 ? "done" : "failed";
@@ -732,8 +733,8 @@ Item {
             if (exitCode !== 0)
                 outputText += "\n(Exit code: " + exitCode + ")";
 
-            messageModel.setProperty(assistantIndex, "approvalStatus", statusStr);
-            messageModel.setProperty(assistantIndex, "approvalResult", outputText);
+            chatMessageModel.setProperty(assistantIndex, "approvalStatus", statusStr);
+            chatMessageModel.setProperty(assistantIndex, "approvalResult", outputText);
 
             var dbText = "";
             if (exitCode === 0) {
@@ -763,7 +764,7 @@ Item {
     }
 
     function declineSetting(description, assistantIndex) {
-        messageModel.setProperty(assistantIndex, "approvalStatus", "declined");
+        chatMessageModel.setProperty(assistantIndex, "approvalStatus", "declined");
 
         var text = "❌ Setting change declined by user.";
         Db.saveMessage(db, currentSessionId, "assistant", text);
@@ -848,17 +849,17 @@ Item {
 
     // ── Message list model ────────────────────────────────────
     ListModel {
-        id: messageModel
+        id: chatMessageModel
     }
 
     // ── Session list model ────────────────────────────────────
     ListModel {
-        id: sessionModel
+        id: chatSessionModel
     }
 
     // ── Memory list model (for Memories panel) ────────────────
     ListModel {
-        id: memoryModel
+        id: chatMemoryModel
     }
 
     // ── Init ──────────────────────────────────────────────────
@@ -869,8 +870,8 @@ Item {
         loadMemoryList();
 
         // Load the most recent session, or create a new one if none exist
-        if (sessionModel.count > 0) {
-            var latest = sessionModel.get(0);
+        if (chatSessionModel.count > 0) {
+            var latest = chatSessionModel.get(0);
             loadSession(latest.id, latest.title);
         } else {
             startNewSession();
@@ -894,19 +895,21 @@ Item {
     // ── Helpers ───────────────────────────────────────────────
 
     function loadSessionList() {
-        sessionModel.clear();
+        chatSessionModel.clear();
         var sessions = Db.loadSessions(db);
         for (var i = 0; i < sessions.length; i++) {
-            sessionModel.append(sessions[i]);
+            chatSessionModel.append(sessions[i]);
         }
+        if (historyPage) historyPage.reload();
     }
 
     function loadMemoryList() {
-        memoryModel.clear();
+        chatMemoryModel.clear();
         var mems = Db.loadMemories(db);
         for (var i = 0; i < mems.length; i++) {
-            memoryModel.append(mems[i]);
+            chatMemoryModel.append(mems[i]);
         }
+        if (memoriesPage) memoriesPage.reload();
     }
 
     function reloadTaskList() {
@@ -915,13 +918,22 @@ Item {
         }
     }
 
+    function _syncChatMessages() {
+        var arr = [];
+        for (var i = 0; i < chatMessageModel.count; i++) {
+            arr.push(chatMessageModel.get(i));
+        }
+        chatMessages = arr;
+    }
+
     function deleteMemory(memId, messageIndex) {
         Db.deleteMemory(db, memId);
         loadMemoryList();
         // Hide the card in the chat (mark as deleted)
-        if (messageIndex >= 0 && messageIndex < messageModel.count) {
-            messageModel.setProperty(messageIndex, "memoryContent", "");
-            messageModel.remove(messageIndex);
+        if (messageIndex >= 0 && messageIndex < chatMessageModel.count) {
+            chatMessageModel.setProperty(messageIndex, "memoryContent", "");
+            chatMessageModel.remove(messageIndex);
+            _syncChatMessages();
         }
     }
 
@@ -930,26 +942,27 @@ Item {
             Api.abortActiveRequest();
             isStreaming = false;
 
-            if (messageModel.count > 0) {
-                var lastIndex = messageModel.count - 1;
-                var lastMsg = messageModel.get(lastIndex);
+            if (chatMessageModel.count > 0) {
+                var lastIndex = chatMessageModel.count - 1;
+                var lastMsg = chatMessageModel.get(lastIndex);
                 if (lastMsg.role === "assistant") {
                     var textToSave = lastMsg.content || "";
                     if (textToSave.trim() === "") {
                         textToSave = "_Stopped by user_";
-                        messageModel.setProperty(lastIndex, "content", textToSave);
+                        chatMessageModel.setProperty(lastIndex, "content", textToSave);
                     }
                     Db.saveMessage(db, currentSessionId, "assistant", textToSave);
                 }
             }
             loadSessionList();
+            _syncChatMessages();
         }
     }
 
     function copyConversationToClipboard() {
         var markdown = "";
-        for (var i = 0; i < messageModel.count; i++) {
-            var m = messageModel.get(i);
+        for (var i = 0; i < chatMessageModel.count; i++) {
+            var m = chatMessageModel.get(i);
             if (!m.isError) {
                 var role = m.role;
                 var content = m.content;
@@ -1016,7 +1029,8 @@ Item {
 
     function startNewSession() {
         stopStreamingAndSave();
-        messageModel.clear();
+        chatMessageModel.clear();
+        _syncChatMessages();
         pendingAttachments = [];
         pendingAttachmentsChanged();
         recentlyCreatedTaskTitles = [];
@@ -1030,7 +1044,7 @@ Item {
 
     function loadSession(sessionId, sessionTitle) {
         stopStreamingAndSave();
-        messageModel.clear();
+        chatMessageModel.clear();
         pendingAttachments = [];
         pendingAttachmentsChanged();
         recentlyCreatedTaskTitles = [];
@@ -1086,8 +1100,9 @@ Item {
             msg.isMemory = isMemoryMsg;
             msg.memoryContent = memContent;
             msg.memoryId = memId;
-            messageModel.append(msg);
+            chatMessageModel.append(msg);
         }
+        _syncChatMessages();
         Qt.callLater(function () {
             chatPage.positionViewAtEnd();
         });
@@ -1097,7 +1112,7 @@ Item {
     }
 
     function buildMessageArray() {
-        return Streaming.buildMessageArray(messageModel, AttachmentHelpers);
+        return Streaming.buildMessageArray(chatMessageModel, AttachmentHelpers);
     }
 
     function sendMessage() {
@@ -1118,7 +1133,7 @@ Item {
         // Add user message
         var userMsg = TextHelpers.createDefaultMessage("user", text || "");
         userMsg.attachmentsJson = attachmentsJson;
-        messageModel.append(userMsg);
+        chatMessageModel.append(userMsg);
         Db.saveMessage(db, currentSessionId, "user", text || "");
         Qt.callLater(updateContextUsage);
 
@@ -1131,8 +1146,8 @@ Item {
         }
 
         // Placeholder for assistant reply
-        var assistantIndex = messageModel.count;
-        messageModel.append(TextHelpers.createDefaultMessage("assistant", ""));
+        var assistantIndex = chatMessageModel.count;
+        chatMessageModel.append(TextHelpers.createDefaultMessage("assistant", ""));
         Qt.callLater(function () {
             chatPage.positionViewAtEnd();
         });
@@ -1143,8 +1158,8 @@ Item {
 
         Api.sendMessage(buildMessageArray(), config, function (accumulated) {
             // onStreaming — update the last message in-place
-            if (assistantIndex < messageModel.count) {
-                messageModel.setProperty(assistantIndex, "content", TextHelpers.preprocessMarkdown(accumulated));
+            if (assistantIndex < chatMessageModel.count) {
+                chatMessageModel.setProperty(assistantIndex, "content", TextHelpers.preprocessMarkdown(accumulated));
             }
             chatPage.positionViewAtEnd();
         }, function (finalText, usage) {
@@ -1173,8 +1188,8 @@ Item {
                 if (cmdTag.type === "task" || cmdTag.type === "add_task") {
                     var tt = (cmdTag.title || "").trim().toLowerCase();
                     if (tt && recentlyCreatedTaskTitles.indexOf(tt) !== -1) {
-                        if (assistantIndex < messageModel.count) {
-                            messageModel.setProperty(assistantIndex, "content", "");
+                        if (assistantIndex < chatMessageModel.count) {
+                            chatMessageModel.setProperty(assistantIndex, "content", "");
                         }
                         chatPage.positionViewAtEnd();
                         loadSessionList();
@@ -1184,9 +1199,9 @@ Item {
                 handleParsedCommand(cmdTag, assistantIndex);
                 return;
             }
-            if (assistantIndex < messageModel.count) {
+            if (assistantIndex < chatMessageModel.count) {
                 var processed = TextHelpers.preprocessMarkdown(finalText);
-                messageModel.setProperty(assistantIndex, "content", processed);
+                chatMessageModel.setProperty(assistantIndex, "content", processed);
                 Db.saveMessage(db, currentSessionId, "assistant", finalText);
             }
             chatPage.positionViewAtEnd();
@@ -1194,9 +1209,9 @@ Item {
         }, function (errorMsg) {
             // onError
             isStreaming = false;
-            if (assistantIndex < messageModel.count) {
-                messageModel.setProperty(assistantIndex, "content", errorMsg);
-                messageModel.setProperty(assistantIndex, "isError", true);
+            if (assistantIndex < chatMessageModel.count) {
+                chatMessageModel.setProperty(assistantIndex, "content", errorMsg);
+                chatMessageModel.setProperty(assistantIndex, "isError", true);
             }
             chatPage.positionViewAtEnd();
         });
@@ -1212,7 +1227,8 @@ Item {
         // PAGE 0: Chat Interface
         ChatPage {
             id: chatPage
-            messageModel: fullRepRoot.messageModel
+            fullRep: fullRepRoot
+            syncFn: fullRepRoot._syncChatMessages
             currentSessionTitle: fullRepRoot.currentSessionTitle
             isStreaming: fullRepRoot.isStreaming
             isRecording: fullRepRoot.isRecording
@@ -1226,7 +1242,7 @@ Item {
             apiUrl: Plasmoid.configuration.apiUrl || ""
             sttBackend: Plasmoid.configuration.sttBackend || "disabled"
             keepOpen: root.keepOpen
-            memoryCount: fullRepRoot.memoryModel.count
+            memoryCount: fullRepRoot.chatMemoryModel.count
 
             onSendMessage: fullRepRoot.sendMessage()
             onToggleRecording: fullRepRoot.toggleRecording()
@@ -1249,7 +1265,7 @@ Item {
         // PAGE 1: Full History Page
         HistoryPage {
             id: historyPage
-            sessionModel: fullRepRoot.sessionModel
+            db: fullRepRoot.db
             currentSessionId: fullRepRoot.currentSessionId
             onBackClicked: historyViewActive = false
             onLoadSession: function(sessionId, sessionTitle) { fullRepRoot.loadSession(sessionId, sessionTitle); }
@@ -1259,7 +1275,7 @@ Item {
         // PAGE 2: Memories View
         MemoriesPage {
             id: memoriesPage
-            memoryModel: fullRepRoot.memoryModel
+            db: fullRepRoot.db
             onBackClicked: memoriesViewActive = false
             onClearAllMemories: {
                 Db.clearMemories(fullRepRoot.db);

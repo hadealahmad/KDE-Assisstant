@@ -19,3 +19,6 @@ Thumbs.db
 # Project-specific logs or settings
 .gemini/
 antigravity-ide/
+
+# Agent memory (not for version control)
+memory/

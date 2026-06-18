@@ -15,18 +15,26 @@ ColumnLayout {
     id: memoriesPageRoot
     spacing: 0
 
-    property var memoryModel: null
+    property var db: null
+    property var memories: []
 
     signal backClicked()
     signal clearAllMemories()
     signal deleteMemory(string memId)
+
+    function reload() {
+        if (!db) return;
+        memories = Db.loadMemories(db);
+    }
+
+    Component.onCompleted: reload()
 
     // Header
     PageHeader {
         title: "Memories"
         onBackClicked: memoriesPageRoot.backClicked()
         actionButtons: [
-            { icon: "edit-clear-all", tooltip: "Clear all memories", enabled: memoriesPageRoot.memoryModel && memoriesPageRoot.memoryModel.count > 0, onClicked: function() {
+            { icon: "edit-clear-all", tooltip: "Clear all memories", enabled: memoriesPageRoot.memories.length > 0, onClicked: function() {
                 memoriesPageRoot.clearAllMemories();
             }}
         ]
@@ -42,7 +50,7 @@ ColumnLayout {
         Layout.fillWidth: true
         Layout.fillHeight: true
         clip: true
-        model: memoriesPageRoot.memoryModel
+        model: memoriesPageRoot.memories
         spacing: Kirigami.Units.smallSpacing
         topMargin: Kirigami.Units.smallSpacing
         bottomMargin: Kirigami.Units.smallSpacing
@@ -68,9 +76,8 @@ ColumnLayout {
         }
 
         delegate: Controls.ItemDelegate {
-            required property string id
-            required property string content
-            required property int created_at
+            required property var modelData
+            required property int index
 
             width: memoryListView.width - memoryListView.leftMargin - memoryListView.rightMargin - Kirigami.Units.gridUnit * 1.5
             padding: Kirigami.Units.smallSpacing
@@ -89,12 +96,12 @@ ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 2
                     Controls.Label {
-                        text: content
+                        text: modelData.content
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
                     }
                     Controls.Label {
-                        text: Qt.formatDateTime(new Date(created_at), "dd MMM yyyy, hh:mm")
+                        text: Qt.formatDateTime(new Date(modelData.created_at), "dd MMM yyyy, hh:mm")
                         font.pointSize: Kirigami.Theme.smallFont.pointSize
                         color: Kirigami.Theme.disabledTextColor
                     }
@@ -102,7 +109,7 @@ ColumnLayout {
 
                 PlasmaComponents.ToolButton {
                     icon.name: "edit-delete"
-                    onClicked: memoriesPageRoot.deleteMemory(id)
+                    onClicked: memoriesPageRoot.deleteMemory(modelData.id)
                     PlasmaComponents.ToolTip {
                         text: "Forget this"
                     }

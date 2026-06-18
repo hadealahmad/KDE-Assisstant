@@ -15,8 +15,9 @@ ColumnLayout {
     id: chatPageRoot
     spacing: 0
 
-    // ── External properties ──────────────────────────────────
-    property var messageModel: null
+    // ── External references ──────────────────────────────────
+    property var fullRep: null
+    property var syncFn: null
     property string currentSessionTitle: "New Chat"
     property bool isStreaming: false
     property bool isRecording: false
@@ -31,6 +32,8 @@ ColumnLayout {
     property string sttBackend: "disabled"
     property bool keepOpen: false
     property int memoryCount: 0
+
+    readonly property var chatMessages: fullRep ? fullRep.chatMessages : []
 
     // ── Signals ──────────────────────────────────────────────
     signal sendMessage()
@@ -56,7 +59,12 @@ ColumnLayout {
     }
 
     function positionViewAtEnd() {
-        chatList.positionViewAtEnd();
+        if (syncFn) syncFn();
+        Qt.callLater(function() {
+            if (chatPageRoot.chatMessages.length > 0) {
+                chatList.positionViewAtIndex(chatPageRoot.chatMessages.length - 1, ListView.End);
+            }
+        });
     }
 
     // ── Header ───────────────────────────────────────────────
@@ -117,7 +125,7 @@ ColumnLayout {
         Layout.fillWidth: true
         Layout.fillHeight: true
         clip: true
-        model: chatPageRoot.messageModel
+        model: chatPageRoot.chatMessages
         spacing: Kirigami.Units.smallSpacing
         topMargin: Kirigami.Units.smallSpacing
         bottomMargin: Kirigami.Units.smallSpacing
@@ -139,7 +147,7 @@ ColumnLayout {
         Kirigami.PlaceholderMessage {
             anchors.centerIn: parent
             width: parent.width - Kirigami.Units.gridUnit * 4
-            visible: chatList.count === 0
+            visible: chatPageRoot.chatMessages.length === 0
             icon.name: "assistant"
             text: "KDE Assistant"
             explanation: "Ask anything. Powered by " + (chatPageRoot.modelName || "your LLM") + " at " + (chatPageRoot.apiUrl || "localhost")
@@ -147,51 +155,34 @@ ColumnLayout {
 
         delegate: Item {
             id: delegateRoot
-            required property string content
-            required property string role
-            required property bool isError
+            required property var modelData
             required property int index
-            required property string approvalStatus
-            required property string approvalResult
-            required property bool isCommand
-            required property string commandCode
-            required property string commandOutput
-            required property string commandStatus
-            required property bool isMemory
-            required property string memoryContent
-            required property string memoryId
-            required property string attachmentsJson
-            required property string taskTitle
-            required property string taskGroupId
-            required property int taskPriority
-            required property string taskDueDate
-
             width: chatList.width - chatList.leftMargin - chatList.rightMargin - Kirigami.Units.gridUnit * 1.5
             height: messageCard.implicitHeight
 
             ChatMessage {
                 id: messageCard
                 width: parent.width
-                messageText: content
-                role: delegateRoot.role
-                isError: delegateRoot.isError
+                messageText: delegateRoot.modelData.content ?? ""
+                role: delegateRoot.modelData.role ?? ""
+                isError: delegateRoot.modelData.isError ?? false
                 messageIndex: delegateRoot.index
-                approvalStatus: delegateRoot.approvalStatus
-                approvalResult: delegateRoot.approvalResult
+                approvalStatus: delegateRoot.modelData.approvalStatus ?? ""
+                approvalResult: delegateRoot.modelData.approvalResult ?? ""
 
-                isCommand: delegateRoot.isCommand
-                commandCode: delegateRoot.commandCode
-                commandOutput: delegateRoot.commandOutput
-                commandStatus: delegateRoot.commandStatus
+                isCommand: delegateRoot.modelData.isCommand ?? false
+                commandCode: delegateRoot.modelData.commandCode ?? ""
+                commandOutput: delegateRoot.modelData.commandOutput ?? ""
+                commandStatus: delegateRoot.modelData.commandStatus ?? ""
 
-                memoryContent: delegateRoot.memoryContent
-                memoryId: delegateRoot.memoryId
-                attachmentsJson: delegateRoot.attachmentsJson
+                memoryContent: delegateRoot.modelData.memoryContent ?? ""
+                memoryId: delegateRoot.modelData.memoryId ?? ""
+                attachmentsJson: delegateRoot.modelData.attachmentsJson ?? ""
 
-                taskTitle: delegateRoot.taskTitle
-                taskGroupId: delegateRoot.taskGroupId
-                taskPriority: delegateRoot.taskPriority
-                taskDueDate: delegateRoot.taskDueDate
+                taskTitle: delegateRoot.modelData.taskTitle ?? ""
+                taskGroupId: delegateRoot.modelData.taskGroupId ?? ""
+                taskPriority: delegateRoot.modelData.taskPriority ?? 0
+                taskDueDate: delegateRoot.modelData.taskDueDate ?? ""
             }
         }
     }
