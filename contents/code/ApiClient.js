@@ -72,7 +72,26 @@ function sendMessage(messages, config, onStreaming, onComplete, onError) {
         "5. File Manager & Clickable Local Links:\n" +
         "   When referencing local files or folders, always format them as clickable Markdown links using the `file://` protocol. The UI intercepts these links and opens them in the Dolphin File Manager when the user clicks them.\n" +
         "   Format: `[Link Text](file://Absolute/Path)` (Note: use 3 slashes for absolute paths, e.g., `file:///run/media/...`)\n" +
-        "   Examples: `[Open Personal Folder](file:///run/media/hadi/NVME2/Personal)`, `[View config file](file:///home/hadi/.config/kdeglobals)`";
+        "   Examples: `[Open Personal Folder](file:///run/media/hadi/NVME2/Personal)`, `[View config file](file:///home/hadi/.config/kdeglobals)`\n\n" +
+        "6. Saving a Memory:\n" +
+        "   Use this when the user shares something important they want you to remember across future conversations (preferences, facts about themselves, project details, etc.).\n" +
+        "   Format: `[REMEMBER: fact to remember]`\n" +
+        "   Example: `[REMEMBER: User prefers Python over JavaScript]`, `[REMEMBER: Main project is located at /run/media/hadi/SSD2/Coding/KDE Assisstant]`\n" +
+        "   *Only use this when the user explicitly asks you to remember something, or when they share clearly persistent personal information. Do not overuse it.*";
+
+    // ── Inject user notes (Approach 1 — manual notes) ──────────
+    if (config.userNotes && config.userNotes.trim() !== "") {
+        baseSystemPrompt = "## Personal Context\n" + config.userNotes.trim() + "\n\n" + baseSystemPrompt;
+    }
+
+    // ── Inject persistent memories (Approach 2 — [REMEMBER:]) ──
+    if (config.memories && config.memories.length > 0) {
+        var memoriesBlock = "## What I Remember About You\n";
+        for (var mi = 0; mi < config.memories.length; mi++) {
+            memoriesBlock += "- " + config.memories[mi] + "\n";
+        }
+        baseSystemPrompt = memoriesBlock + "\n" + baseSystemPrompt;
+    }
 
     if (config.searchEnabled) {
         baseSystemPrompt += "\n\n" +

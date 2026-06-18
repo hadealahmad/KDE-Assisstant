@@ -19,6 +19,7 @@ QQC2.ScrollView {
     property alias cfg_searchApiKey:   searchApiKey.text
     property alias cfg_searchExtraUrl: searchExtraUrl.text
     property alias cfg_grepMaxResults: grepMaxResults.value
+    property alias cfg_userNotes:      userNotes.text
 
     // ── Provider preset tables ─────────────────────────────────
     // Fix #11: renamed "google" → "gemini" to avoid collision with the
@@ -460,6 +461,32 @@ QQC2.ScrollView {
             wrapMode: TextEdit.Wrap
             Component.onCompleted: text = plasmoid.configuration.systemPrompt || "You are a helpful assistant."
             onTextChanged: plasmoid.configuration.systemPrompt = text
+        }
+
+        // ── SECTION: Memory & Notes ──────────────────────────────
+
+        Item {
+            Kirigami.FormData.isSection: true
+            Kirigami.FormData.label: i18n("Memory & Notes")
+        }
+
+        // Hint label
+        QQC2.Label {
+            text: i18n("Personal notes prepended to every conversation.\nThe AI also saves facts here automatically when you ask it to remember something.")
+            color: Kirigami.Theme.disabledTextColor
+            font.pointSize: Kirigami.Theme.smallFont.pointSize
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+        }
+
+        QQC2.TextArea {
+            id: userNotes
+            Layout.fillWidth: true
+            Layout.fillHeight: false
+            Layout.preferredHeight: Kirigami.Units.gridUnit * 6
+            Layout.maximumHeight:   Kirigami.Units.gridUnit * 6
+            wrapMode: TextEdit.Wrap
+            placeholderText: i18n("E.g. My name is Hadi. I use KDE Plasma on Arch Linux. I work in Qt/QML and Python.")
         }
 
         // ── SECTION: Web Search ──────────────────────────────────

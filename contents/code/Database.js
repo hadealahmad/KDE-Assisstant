@@ -29,6 +29,15 @@ function initDatabase(db) {
             "  FOREIGN KEY(session_id) REFERENCES sessions(id)" +
             ")"
         );
+        // ── Memory table (Approach 2) ────────────────────────────
+        tx.executeSql(
+            "CREATE TABLE IF NOT EXISTS memories (" +
+            "  id TEXT PRIMARY KEY," +
+            "  content TEXT NOT NULL," +
+            "  created_at INTEGER NOT NULL," +
+            "  source_session_id TEXT" +
+            ")"
+        );
     });
 }
 
@@ -121,5 +130,63 @@ function deleteSession(db, sessionId) {
         });
     } catch (e) {
         console.error("deleteSession error:", e);
+    }
+}
+
+// ──────────────────────────────────────────────
+// Memory CRUD (Approach 2 — [REMEMBER: ...])
+// ──────────────────────────────────────────────
+
+function saveMemory(db, content, sessionId) {
+    var now = Date.now();
+    var id  = "mem_" + now.toString(36) + "_" + Math.random().toString(36).substr(2, 6);
+    try {
+        db.transaction(function (tx) {
+            tx.executeSql(
+                "INSERT INTO memories (id, content, created_at, source_session_id) VALUES (?, ?, ?, ?)",
+                [id, content.trim(), now, sessionId || ""]
+            );
+        });
+        return id;
+    } catch (e) {
+        console.error("saveMemory error:", e);
+        return "";
+    }
+}
+
+function loadMemories(db) {
+    var memories = [];
+    try {
+        db.readTransaction(function (tx) {
+            var result = tx.executeSql(
+                "SELECT * FROM memories ORDER BY created_at ASC"
+            );
+            for (var i = 0; i < result.rows.length; i++) {
+                memories.push(result.rows.item(i));
+            }
+        });
+    } catch (e) {
+        console.error("loadMemories error:", e);
+    }
+    return memories;
+}
+
+function deleteMemory(db, memoryId) {
+    try {
+        db.transaction(function (tx) {
+            tx.executeSql("DELETE FROM memories WHERE id = ?", [memoryId]);
+        });
+    } catch (e) {
+        console.error("deleteMemory error:", e);
+    }
+}
+
+function clearMemories(db) {
+    try {
+        db.transaction(function (tx) {
+            tx.executeSql("DELETE FROM memories");
+        });
+    } catch (e) {
+        console.error("clearMemories error:", e);
     }
 }

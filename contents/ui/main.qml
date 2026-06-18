@@ -13,6 +13,10 @@ import org.kde.kirigami as Kirigami
 PlasmoidItem {
     id: root
 
+    // Allow the user to pin the popup open (like Clipboard, Calculator, etc.)
+    // The pin button in the header toggles this between true (auto-hide) and false (stay open).
+    Plasmoid.hideOnWindowDeactivate: true
+
     preferredRepresentation: Plasmoid.containmentType === Plasmoid.PanelContainment ? compactRepresentation : fullRepresentation
 
     compactRepresentation: PlasmaComponents.ToolButton {

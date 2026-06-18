@@ -27,6 +27,7 @@ Item {
     property string currentSessionTitle: "New Chat"
     property bool isStreaming: false
     property bool historyViewActive: false
+    property bool memoriesViewActive: false
 
     // ── Command execution state ──────────────────────────────────
     property var activeCommandCallback: null
@@ -136,6 +137,30 @@ Item {
             messageModel.setProperty(assistantIndex, "approvalStatus", "pending");
             messageModel.setProperty(assistantIndex, "approvalResult", "");
             chatList.positionViewAtEnd();
+        } else if (cmdTag.type === "remember") {
+            // Save the memory to DB immediately — no confirmation needed
+            var memId = Db.saveMemory(db, cmdTag.content, currentSessionId);
+            loadMemoryList();
+
+            // Convert the assistant message to a memory card in the chat
+            messageModel.setProperty(assistantIndex, "role", "memory");
+            messageModel.setProperty(assistantIndex, "content", "");
+            messageModel.setProperty(assistantIndex, "memoryContent", cmdTag.content);
+            messageModel.setProperty(assistantIndex, "memoryId", memId);
+            chatList.positionViewAtEnd();
+
+            // Persist the memory card in the DB so it survives reload
+            Db.saveMessage(db, currentSessionId, "memory",
+                JSON.stringify({ id: memId, content: cmdTag.content }));
+            loadSessionList();
+
+            // Resume so the AI can naturally acknowledge ("Got it!" etc.)
+            var updatedMessages = buildMessageArray();
+            updatedMessages.push({
+                role: "system",
+                content: "Memory saved: \"" + cmdTag.content + "\". Continue the conversation naturally."
+            });
+            resumeStreaming(updatedMessages);
         }
     }
 
@@ -151,7 +176,10 @@ Item {
             isCommand: false,
             commandCode: "",
             commandOutput: "",
-            commandStatus: ""
+            commandStatus: "",
+            isMemory: false,
+            memoryContent: "",
+            memoryId: ""
         });
         chatList.positionViewAtEnd();
 
@@ -187,19 +215,27 @@ Item {
     }
 
     function getApiConfig() {
+        // Load persisted memories to inject into the system prompt
+        var memObjs = Db.loadMemories(db);
+        var memStrings = [];
+        for (var i = 0; i < memObjs.length; i++) {
+            memStrings.push(memObjs[i].content);
+        }
         return {
-            apiUrl: Plasmoid.configuration.apiUrl,
-            apiKey: Plasmoid.configuration.apiKey,
-            modelName: Plasmoid.configuration.modelName,
-            systemPrompt: Plasmoid.configuration.systemPrompt,
-            temperature: Plasmoid.configuration.temperature,
-            maxTokens: Plasmoid.configuration.maxTokens,
+            apiUrl:        Plasmoid.configuration.apiUrl,
+            apiKey:        Plasmoid.configuration.apiKey,
+            modelName:     Plasmoid.configuration.modelName,
+            systemPrompt:  Plasmoid.configuration.systemPrompt,
+            temperature:   Plasmoid.configuration.temperature,
+            maxTokens:     Plasmoid.configuration.maxTokens,
             searchEnabled: Plasmoid.configuration.searchEnabled,
             searchProvider: Plasmoid.configuration.searchProvider,
-            searchApiKey: Plasmoid.configuration.searchApiKey,
+            searchApiKey:  Plasmoid.configuration.searchApiKey,
             searchExtraUrl: Plasmoid.configuration.searchExtraUrl,
-            grepProvider: Plasmoid.configuration.grepProvider,
-            grepMaxResults: Plasmoid.configuration.grepMaxResults
+            grepProvider:  Plasmoid.configuration.grepProvider,
+            grepMaxResults: Plasmoid.configuration.grepMaxResults,
+            userNotes:     Plasmoid.configuration.userNotes,
+            memories:      memStrings
         };
     }
 
@@ -288,11 +324,17 @@ Item {
         id: sessionModel
     }
 
+    // ── Memory list model (for Memories panel) ────────────────
+    ListModel {
+        id: memoryModel
+    }
+
     // ── Init ──────────────────────────────────────────────────
     Component.onCompleted: {
         db = LS.LocalStorage.openDatabaseSync("KDEAssistant", "1.0", "KDE Assistant Chat History", 10000000);
         Db.initDatabase(db);
         loadSessionList();
+        loadMemoryList();
         startNewSession();
 
         // Auto-focus input on completion if expanded or desktop containment
@@ -317,6 +359,24 @@ Item {
         var sessions = Db.loadSessions(db);
         for (var i = 0; i < sessions.length; i++) {
             sessionModel.append(sessions[i]);
+        }
+    }
+
+    function loadMemoryList() {
+        memoryModel.clear();
+        var mems = Db.loadMemories(db);
+        for (var i = 0; i < mems.length; i++) {
+            memoryModel.append(mems[i]);
+        }
+    }
+
+    function deleteMemory(memId, messageIndex) {
+        Db.deleteMemory(db, memId);
+        loadMemoryList();
+        // Hide the card in the chat (mark as deleted)
+        if (messageIndex >= 0 && messageIndex < messageModel.count) {
+            messageModel.setProperty(messageIndex, "memoryContent", "");
+            messageModel.remove(messageIndex);
         }
     }
 
@@ -439,6 +499,22 @@ Item {
                 }
             }
 
+            var isMemoryMsg = (role === "memory");
+            var memContent = "";
+            var memId = "";
+
+            if (isMemoryMsg) {
+                try {
+                    var memParsed = JSON.parse(content);
+                    memId = memParsed.id || "";
+                    memContent = memParsed.content || "";
+                    content = "";
+                } catch (e) {
+                    memContent = content;
+                    content = "";
+                }
+            }
+
             messageModel.append({
                 role: role,
                 content: content,
@@ -448,7 +524,10 @@ Item {
                 isCommand: isCommand,
                 commandCode: cmdCode,
                 commandOutput: cmdOutput,
-                commandStatus: cmdStatus
+                commandStatus: cmdStatus,
+                isMemory: isMemoryMsg,
+                memoryContent: memContent,
+                memoryId: memId
             });
         }
         Qt.callLater(function () {
@@ -483,6 +562,9 @@ Item {
                         role: "system",
                         content: "System Output for `" + cmdCode + "`:\n\n" + cmdOutput
                     });
+                } else if (role === "memory") {
+                    // Skip memory cards from API context (they're in the system prompt already)
+                    continue;
                 } else {
                     arr.push({
                         role: role,
@@ -511,7 +593,10 @@ Item {
             isCommand: false,
             commandCode: "",
             commandOutput: "",
-            commandStatus: ""
+            commandStatus: "",
+            isMemory: false,
+            memoryContent: "",
+            memoryId: ""
         });
         Db.saveMessage(db, currentSessionId, "user", text);
 
@@ -534,7 +619,10 @@ Item {
             isCommand: false,
             commandCode: "",
             commandOutput: "",
-            commandStatus: ""
+            commandStatus: "",
+            isMemory: false,
+            memoryContent: "",
+            memoryId: ""
         });
         Qt.callLater(function () {
             chatList.positionViewAtEnd();
@@ -581,7 +669,7 @@ Item {
     StackLayout {
         id: mainStack
         anchors.fill: parent
-        currentIndex: historyViewActive ? 1 : 0
+        currentIndex: memoriesViewActive ? 2 : historyViewActive ? 1 : 0
 
         // PAGE 0: Chat Interface
         ColumnLayout {
@@ -667,12 +755,36 @@ Item {
                         }
                     }
 
+                    // Memories button
+                    PlasmaComponents.ToolButton {
+                        icon.name: "view-list-text"
+                        onClicked: {
+                            memoriesViewActive = true;
+                            historyViewActive  = false;
+                        }
+                        PlasmaComponents.ToolTip {
+                            text: "Memories (" + memoryModel.count + ")"
+                        }
+                    }
+
                     // Settings button
                     PlasmaComponents.ToolButton {
                         icon.name: "configure"
                         onClicked: Plasmoid.internalAction("configure").trigger()
                         PlasmaComponents.ToolTip {
                             text: "Settings"
+                        }
+                    }
+
+                    // Pin / Unpin button — keeps the popup open when focus is lost
+                    PlasmaComponents.ToolButton {
+                        id: pinButton
+                        icon.name: Plasmoid.hideOnWindowDeactivate ? "window-pin" : "window-unpin"
+                        checked: !Plasmoid.hideOnWindowDeactivate
+                        checkable: true
+                        onClicked: Plasmoid.hideOnWindowDeactivate = !Plasmoid.hideOnWindowDeactivate
+                        PlasmaComponents.ToolTip {
+                            text: Plasmoid.hideOnWindowDeactivate ? "Pin (keep open)" : "Unpin (auto-close)"
                         }
                     }
                 }
@@ -728,6 +840,9 @@ Item {
                     required property string commandCode
                     required property string commandOutput
                     required property string commandStatus
+                    required property bool   isMemory
+                    required property string memoryContent
+                    required property string memoryId
 
                     width: chatList.width - chatList.leftMargin - chatList.rightMargin - Kirigami.Units.gridUnit * 1.5
                     height: messageCard.implicitHeight
@@ -746,6 +861,9 @@ Item {
                         commandCode: delegateRoot.commandCode
                         commandOutput: delegateRoot.commandOutput
                         commandStatus: delegateRoot.commandStatus
+
+                        memoryContent: delegateRoot.memoryContent
+                        memoryId: delegateRoot.memoryId
                     }
                 }
             }
@@ -966,6 +1084,132 @@ Item {
                     }
 
                     onClicked: loadSession(id, title)
+                }
+            }
+        }
+
+        // PAGE 2: Memories View
+        ColumnLayout {
+            id: memoriesPage
+            spacing: 0
+
+            // Header
+            Rectangle {
+                Layout.fillWidth: true
+                height: memoriesHeaderRow.implicitHeight + Kirigami.Units.smallSpacing * 2
+                color: Kirigami.Theme.alternateBackgroundColor
+
+                RowLayout {
+                    id: memoriesHeaderRow
+                    anchors {
+                        left: parent.left
+                        right: parent.right
+                        verticalCenter: parent.verticalCenter
+                        leftMargin: Kirigami.Units.smallSpacing
+                        rightMargin: Kirigami.Units.smallSpacing
+                    }
+                    spacing: Kirigami.Units.smallSpacing
+
+                    PlasmaComponents.ToolButton {
+                        icon.name: "go-previous"
+                        onClicked: memoriesViewActive = false
+                        PlasmaComponents.ToolTip { text: "Back to Chat" }
+                    }
+
+                    Kirigami.Heading {
+                        text: "Memories"
+                        level: 3
+                        Layout.fillWidth: true
+                    }
+
+                    // Clear all memories
+                    PlasmaComponents.ToolButton {
+                        icon.name: "edit-clear-all"
+                        enabled: memoryModel.count > 0
+                        onClicked: {
+                            Db.clearMemories(db);
+                            loadMemoryList();
+                        }
+                        PlasmaComponents.ToolTip { text: "Clear all memories" }
+                    }
+                }
+            }
+
+            Kirigami.Separator { Layout.fillWidth: true }
+
+            // Memory list
+            ListView {
+                id: memoryListView
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                model: memoryModel
+                spacing: Kirigami.Units.smallSpacing
+                topMargin: Kirigami.Units.smallSpacing
+                bottomMargin: Kirigami.Units.smallSpacing
+                leftMargin: Kirigami.Units.smallSpacing
+                rightMargin: Kirigami.Units.smallSpacing
+
+                Controls.ScrollBar.vertical: Controls.ScrollBar {
+                    policy: Controls.ScrollBar.AsNeeded
+                    visible: memoryListView.contentHeight > memoryListView.height
+                }
+                Controls.ScrollBar.horizontal: Controls.ScrollBar {
+                    policy: Controls.ScrollBar.AlwaysOff
+                    visible: false
+                }
+
+                Kirigami.PlaceholderMessage {
+                    anchors.centerIn: parent
+                    width: parent.width - Kirigami.Units.gridUnit * 4
+                    visible: memoryListView.count === 0
+                    icon.name: "view-list-text"
+                    text: "No Memories Yet"
+                    explanation: "Ask the assistant to remember something, or write personal notes in Settings."
+                }
+
+                delegate: Controls.ItemDelegate {
+                    required property string id
+                    required property string content
+                    required property int created_at
+
+                    width: memoryListView.width - memoryListView.leftMargin - memoryListView.rightMargin - Kirigami.Units.gridUnit * 1.5
+                    padding: Kirigami.Units.smallSpacing
+
+                    contentItem: RowLayout {
+                        spacing: Kirigami.Units.smallSpacing
+
+                        Kirigami.Icon {
+                            source: "view-list-text"
+                            Layout.preferredWidth:  Kirigami.Units.iconSizes.small
+                            Layout.preferredHeight: Kirigami.Units.iconSizes.small
+                            color: Kirigami.Theme.positiveTextColor
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            Controls.Label {
+                                text: content
+                                wrapMode: Text.WordWrap
+                                Layout.fillWidth: true
+                            }
+                            Controls.Label {
+                                text: Qt.formatDateTime(new Date(created_at), "dd MMM yyyy, hh:mm")
+                                font.pointSize: Kirigami.Theme.smallFont.pointSize
+                                color: Kirigami.Theme.disabledTextColor
+                            }
+                        }
+
+                        PlasmaComponents.ToolButton {
+                            icon.name: "edit-delete"
+                            onClicked: {
+                                Db.deleteMemory(db, id);
+                                loadMemoryList();
+                            }
+                            PlasmaComponents.ToolTip { text: "Forget this" }
+                        }
+                    }
                 }
             }
         }

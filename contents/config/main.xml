@@ -44,5 +44,8 @@
         <entry name="apiProvider" type="String">
             <default>ollama</default>
         </entry>
+        <entry name="userNotes" type="String">
+            <default></default>
+        </entry>
     </group>
 </kcfg>

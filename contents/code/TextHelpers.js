@@ -43,5 +43,10 @@ function parseCommandTag(text) {
         return { type: "setting", command: settingMatch[1].trim(), description: settingMatch[2].trim() };
     }
 
+    var rememberMatch = text.match(/\[remember:\s*([\s\S]+?)\s*\]/i);
+    if (rememberMatch) {
+        return { type: "remember", content: rememberMatch[1].trim() };
+    }
+
     return null;
 }

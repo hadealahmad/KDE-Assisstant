@@ -27,8 +27,12 @@ Kirigami.AbstractCard {
     property string commandStatus: ""
     property bool cmdExpanded: false
 
-    readonly property bool isUser: role === "user"
+    readonly property bool isUser:     role === "user"
     readonly property bool isApproval: role === "setting_approval"
+    readonly property bool isMemory:   role === "memory"
+
+    property string memoryContent: ""
+    property string memoryId: ""
 
     property bool thinkingExpanded: false
 
@@ -79,12 +83,14 @@ Kirigami.AbstractCard {
 
     // Subtle tint to distinguish user vs assistant bubbles
     background: Rectangle {
-        visible: root.isUser || root.isError
+        visible: root.isUser || root.isError || root.isMemory
         color: {
             if (root.isError)
                 return Qt.rgba(Kirigami.Theme.negativeTextColor.r, Kirigami.Theme.negativeTextColor.g, Kirigami.Theme.negativeTextColor.b, 0.08);
             if (root.isUser)
                 return Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g, Kirigami.Theme.highlightColor.b, 0.08);
+            if (root.isMemory)
+                return Qt.rgba(Kirigami.Theme.positiveTextColor.r, Kirigami.Theme.positiveTextColor.g, Kirigami.Theme.positiveTextColor.b, 0.07);
             return "transparent";
         }
         radius: Kirigami.Units.smallSpacing
@@ -93,6 +99,8 @@ Kirigami.AbstractCard {
                 return Qt.rgba(Kirigami.Theme.negativeTextColor.r, Kirigami.Theme.negativeTextColor.g, Kirigami.Theme.negativeTextColor.b, 0.25);
             if (root.isUser)
                 return Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g, Kirigami.Theme.highlightColor.b, 0.3);
+            if (root.isMemory)
+                return Qt.rgba(Kirigami.Theme.positiveTextColor.r, Kirigami.Theme.positiveTextColor.g, Kirigami.Theme.positiveTextColor.b, 0.3);
             return "transparent";
         }
         border.width: 1
@@ -112,6 +120,8 @@ Kirigami.AbstractCard {
                     return "🔧 System Change Approval";
                 if (root.isCommand)
                     return "⚙ System Command";
+                if (root.isMemory)
+                    return "🧠 Memory Saved";
                 return "Assistant";
             }
             font.bold: true
@@ -125,6 +135,8 @@ Kirigami.AbstractCard {
                     return Kirigami.Theme.highlightColor;
                 if (root.isCommand)
                     return Kirigami.Theme.highlightColor;
+                if (root.isMemory)
+                    return Kirigami.Theme.positiveTextColor;
                 return Kirigami.Theme.disabledTextColor;
             }
             Layout.leftMargin: Kirigami.Units.gridUnit * 2
@@ -410,7 +422,7 @@ Kirigami.AbstractCard {
             id: messageContent
             Layout.fillWidth: true
             Layout.leftMargin: Kirigami.Units.gridUnit * 2
-            visible: !root.isApproval && root.cleanMessageText !== ""
+            visible: !root.isApproval && !root.isMemory && root.cleanMessageText !== ""
 
             readOnly: true
             wrapMode: TextEdit.WordWrap
@@ -437,6 +449,32 @@ Kirigami.AbstractCard {
             HoverHandler {
                 enabled: parent.hoveredLink !== ""
                 cursorShape: Qt.PointingHandCursor
+            }
+        }
+
+        // Memory card content
+        RowLayout {
+            visible: root.isMemory
+            Layout.fillWidth: true
+            Layout.leftMargin: Kirigami.Units.gridUnit * 2
+            Layout.rightMargin: Kirigami.Units.smallSpacing
+            spacing: Kirigami.Units.smallSpacing
+
+            Controls.Label {
+                text: root.memoryContent
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+                color: Kirigami.Theme.textColor
+            }
+
+            Controls.ToolButton {
+                icon.name: "edit-delete"
+                display: Controls.AbstractButton.IconOnly
+                flat: true
+                Controls.ToolTip.text: "Forget this memory"
+                Controls.ToolTip.delay: Kirigami.Units.toolTipDelay
+                Controls.ToolTip.visible: hovered
+                onClicked: fullRepRoot.deleteMemory(root.memoryId, root.messageIndex)
             }
         }
 
