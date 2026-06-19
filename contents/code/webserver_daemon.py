@@ -6,6 +6,8 @@ import sqlite3
 import argparse
 import urllib.request
 import urllib.parse
+import time
+import subprocess
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 # Resolve DB file location
@@ -74,6 +76,10 @@ class WebServerHandler(BaseHTTPRequestHandler):
                 self.handle_get_sessions()
             elif path == '/api/messages':
                 self.handle_get_messages(parsed_url.query)
+            elif path == '/api/tasks':
+                self.handle_get_tasks()
+            elif path == '/api/memories':
+                self.handle_get_memories()
             else:
                 self.send_error(404, "API endpoint not found")
             return
@@ -127,10 +133,21 @@ class WebServerHandler(BaseHTTPRequestHandler):
         if not self.check_auth():
             return
             
+        content_length = int(self.headers.get('Content-Length', 0))
+        post_data = self.rfile.read(content_length) if content_length > 0 else b'{}'
+        try:
+            data = json.loads(post_data.decode('utf-8'))
+        except Exception:
+            data = {}
+
         if path == '/api/messages':
-            content_length = int(self.headers['Content-Length'])
-            post_data = self.rfile.read(content_length)
-            self.handle_post_message(json.loads(post_data.decode('utf-8')))
+            self.handle_post_message(data)
+        elif path == '/api/tasks/toggle':
+            self.handle_tasks_toggle(data)
+        elif path == '/api/memories/delete':
+            self.handle_memories_delete(data)
+        elif path == '/api/commands/action':
+            self.handle_commands_action(data)
         else:
             self.send_error(404, "API endpoint not found")
 
@@ -176,7 +193,7 @@ class WebServerHandler(BaseHTTPRequestHandler):
             self.send_error(400, "Missing prompt")
             return
             
-        now = int(urllib.parse.time.time() * 1000)
+        now = int(time.time() * 1000)
         conn = sqlite3.connect(self.server.db_path)
         cursor = conn.cursor()
         
@@ -212,7 +229,7 @@ class WebServerHandler(BaseHTTPRequestHandler):
             # Save assistant message to DB
             conn = sqlite3.connect(self.server.db_path)
             cursor = conn.cursor()
-            assistant_now = int(urllib.parse.time.time() * 1000)
+            assistant_now = int(time.time() * 1000)
             assistant_msg_id = f"msg_assistant_{assistant_now}"
             cursor.execute("INSERT INTO messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)",
                            (assistant_msg_id, session_id, "assistant", full_response, assistant_now))
@@ -271,6 +288,147 @@ class WebServerHandler(BaseHTTPRequestHandler):
                     except Exception as e:
                         pass
         return full_response
+
+    def handle_get_tasks(self):
+        conn = sqlite3.connect(self.server.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT t.id, t.title, t.priority, t.due_date, (t.status = 'done') as completed, g.name as group_name 
+            FROM tasks t 
+            LEFT JOIN task_groups g ON t.group_id = g.id 
+            ORDER BY (t.status = 'done') ASC, t.priority DESC, t.created_at DESC
+        """)
+        rows = cursor.fetchall()
+        tasks = [dict(r) for r in rows]
+        conn.close()
+        
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json.dumps(tasks).encode('utf-8'))
+
+    def handle_get_memories(self):
+        conn = sqlite3.connect(self.server.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, content, created_at FROM memories ORDER BY created_at DESC")
+        rows = cursor.fetchall()
+        memories = [dict(r) for r in rows]
+        conn.close()
+        
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json.dumps(memories).encode('utf-8'))
+
+    def handle_tasks_toggle(self, data):
+        task_id = data.get('id')
+        completed = data.get('completed', 0)
+        if not task_id:
+            self.send_error(400, "Missing task id")
+            return
+        
+        conn = sqlite3.connect(self.server.db_path)
+        cursor = conn.cursor()
+        now = int(time.time() * 1000)
+        status = 'done' if completed else 'pending'
+        completed_at = now if completed else None
+        cursor.execute("UPDATE tasks SET status = ?, completed_at = ? WHERE id = ?", (status, completed_at, task_id))
+        conn.commit()
+        conn.close()
+        
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json.dumps({"success": True}).encode('utf-8'))
+
+    def handle_memories_delete(self, data):
+        memory_id = data.get('id')
+        if not memory_id:
+            self.send_error(400, "Missing memory id")
+            return
+        
+        conn = sqlite3.connect(self.server.db_path)
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
+        conn.commit()
+        conn.close()
+        
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json.dumps({"success": True}).encode('utf-8'))
+
+    def handle_commands_action(self, data):
+        message_id = data.get('message_id')
+        action = data.get('action')
+        if not message_id or not action:
+            self.send_error(400, "Missing message_id or action")
+            return
+        
+        conn = sqlite3.connect(self.server.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT content FROM messages WHERE id = ?", (message_id,))
+        row = cursor.fetchone()
+        
+        if not row:
+            conn.close()
+            self.send_error(404, "Message not found")
+            return
+            
+        content_str = row[0]
+        try:
+            parsed = json.loads(content_str)
+        except Exception:
+            parsed = {"command": content_str, "status": "pending", "output": ""}
+            
+        command = parsed.get("command", "")
+        now = int(time.time() * 1000)
+        
+        if action == "decline":
+            parsed["status"] = "declined"
+            new_content = json.dumps(parsed)
+            cursor.execute("UPDATE messages SET content = ?, timestamp = ? WHERE id = ?", (new_content, now, message_id))
+            conn.commit()
+            conn.close()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({"success": True, "status": "declined"}).encode('utf-8'))
+            return
+            
+        # Action is approve
+        parsed["status"] = "running"
+        new_content = json.dumps(parsed)
+        cursor.execute("UPDATE messages SET content = ?, timestamp = ? WHERE id = ?", (new_content, now, message_id))
+        conn.commit()
+        
+        try:
+            result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
+            output = result.stdout
+            if result.stderr:
+                output += "\n--- STDERR ---\n" + result.stderr
+            status = "completed" if result.returncode == 0 else "error"
+        except subprocess.TimeoutExpired:
+            output = "Command timed out after 30 seconds."
+            status = "error"
+        except Exception as e:
+            output = f"Execution failed: {str(e)}"
+            status = "error"
+            
+        now_end = int(time.time() * 1000)
+        parsed["status"] = status
+        parsed["output"] = output
+        new_content = json.dumps(parsed)
+        cursor.execute("UPDATE messages SET content = ?, timestamp = ? WHERE id = ?", (new_content, now_end, message_id))
+        conn.commit()
+        conn.close()
+        
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json.dumps({"success": True, "status": status, "output": output}).encode('utf-8'))
 
 def main():
     parser = argparse.ArgumentParser(description="KDE Assistant Webserver Daemon")
