@@ -50,9 +50,9 @@ contents/
 │   └── config.qml              # Settings UI routing
 └── ui/
     ├── main.qml                # Root plasmoid, representations
-    ├── FullRepresentation.qml  # Orchestrator: state, session, streaming
-    ├── ChatPage.qml            # Chat UI: messages, input, attachments
-    ├── ChatMessage.qml         # Message bubble delegate
+    ├── FullRepresentation.qml  # Main orchestrator (decoupled logic)
+    ├── ChatPage.qml            # Chat UI container
+    ├── ChatMessage.qml         # Message card router
     ├── HistoryPage.qml         # Session history browser
     ├── MemoriesPage.qml        # Memory management
     ├── TasksPage.qml           # Task list with groups/filters
@@ -61,7 +61,18 @@ contents/
     ├── AddEditGroupDialog.qml  # Group create/edit dialog
     ├── ConfigGeneral.qml       # Settings page
     ├── PageHeader.qml          # Reusable header component
-    └── CollapsibleBlock.qml    # Expandable content block
+    ├── CollapsibleBlock.qml    # Expandable content block
+    └── components/             # Decoupled UI & logic components
+        ├── CommandRunner.qml          # Non-visual shell execution manager
+        ├── SpeechToTextManager.qml    # Non-visual voice recording lifecycle
+        ├── ChatInputBar.qml           # Prompts, STT, and attachment controls
+        ├── PendingAttachmentsBar.qml  # Preview strip for staged files
+        ├── ContextUsageHeader.qml     # Active model & context tracking bar
+        ├── ThinkingBlock.qml          # Collapsible LLM thoughts display
+        ├── SettingApprovalCard.qml    # Security prompt card for settings changes
+        ├── SystemCommandCard.qml      # CLI run status & output log box
+        ├── MemoryCard.qml             # Inline memory card delegate
+        └── TaskCard.qml               # Inline task creation notification card
 ```
 
 ## License
