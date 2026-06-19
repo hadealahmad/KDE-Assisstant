@@ -77,6 +77,14 @@ contents/
         └── TaskCard.qml               # Inline task creation notification card
 ```
 
+## Documentation
+
+Detailed architectural and configuration guidelines are available in the [documentation/](file:///run/media/hadi/SSD2/Coding/KDE%20Assisstant/documentation/) directory:
+- [Software Architecture Map](file:///run/media/hadi/SSD2/Coding/KDE%20Assisstant/documentation/software_map.md): High-level layout of Plasmoid-to-Daemon sync, SSE connections, process priorities, and DB watchers.
+- [Features and Tool Integrations](file:///run/media/hadi/SSD2/Coding/KDE%20Assisstant/documentation/features_and_tools.md): Breakdown of conversational tool tags (FETCH, GREP, SYSTEM, SETTINGS, REMEMBER, TASKS), success/fail notification flows, and STT/TTS bridges.
+- [Database Schema & Offline Storage](file:///run/media/hadi/SSD2/Coding/KDE%20Assisstant/documentation/database_schema.md): Schema blueprints of sessions, messages (with serialized JSON payloads), memories, groups, and tasks.
+- [Configuration and Settings](file:///run/media/hadi/SSD2/Coding/KDE%20Assisstant/documentation/configuration.md): Deep-dive into KConfig general properties, search keys, and local directories.
+
 ## License
 
 GPL
