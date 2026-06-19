@@ -38,6 +38,13 @@ Item {
     property bool historyViewActive: false
     property bool memoriesViewActive: false
     property bool tasksViewActive: false
+    // ── External DB Change Sync State ──────────────────────────
+    property var lastMaxSessionTime: 0
+    property var lastSessionCount: 0
+    property var lastMaxMemoryTime: 0
+    property var lastMemoryCount: 0
+    property var lastMaxTaskTime: 0
+    property var lastTaskCount: 0
     property real contextUsagePercent: 0
     property int contextUsedChars: 0
     property int contextMaxChars: Plasmoid.configuration.contextWindowSize || 128000
@@ -952,6 +959,11 @@ Item {
                 var apiKeyVal = Plasmoid.configuration.apiKey || "";
                 var modelVal = Plasmoid.configuration.modelName || "llama3";
                 var sysPromptVal = Plasmoid.configuration.systemPrompt || "You are a helpful assistant.";
+                var searchEnabledVal = Plasmoid.configuration.searchEnabled !== undefined ? Plasmoid.configuration.searchEnabled : true;
+                var prayerLatVal = Plasmoid.configuration.prayerLatitude !== undefined ? Plasmoid.configuration.prayerLatitude : "";
+                var prayerLngVal = Plasmoid.configuration.prayerLongitude !== undefined ? Plasmoid.configuration.prayerLongitude : "";
+                var prayerMethodVal = Plasmoid.configuration.prayerMethod !== undefined ? Plasmoid.configuration.prayerMethod : 3;
+                var userNotesVal = Plasmoid.configuration.userNotes || "";
                 // Get absolute directory path of the plasmoid code/ui
                 var baseDir = Qt.resolvedUrl(".").toString();
                 if (baseDir.indexOf("file://") === 0)
@@ -961,7 +973,7 @@ Item {
                     baseDir = baseDir.substring(0, baseDir.length - 1);
 
                 var staticDir = baseDir + "/web";
-                var startCmd = "python3 " + TextHelpers.escapeShellArg(baseDir + "/../code/webserver_daemon.py") + " " + "--port " + port + " " + "--token " + TextHelpers.escapeShellArg(token) + " " + "--api-url " + TextHelpers.escapeShellArg(apiAddr) + " " + "--api-key " + TextHelpers.escapeShellArg(apiKeyVal) + " " + "--model " + TextHelpers.escapeShellArg(modelVal) + " " + "--system-prompt " + TextHelpers.escapeShellArg(sysPromptVal) + " " + "--static-dir " + TextHelpers.escapeShellArg(staticDir);
+                var startCmd = "python3 " + TextHelpers.escapeShellArg(baseDir + "/../code/webserver_daemon.py") + " " + "--port " + port + " " + "--token " + TextHelpers.escapeShellArg(token) + " " + "--api-url " + TextHelpers.escapeShellArg(apiAddr) + " " + "--api-key " + TextHelpers.escapeShellArg(apiKeyVal) + " " + "--model " + TextHelpers.escapeShellArg(modelVal) + " " + "--system-prompt " + TextHelpers.escapeShellArg(sysPromptVal) + " " + "--static-dir " + TextHelpers.escapeShellArg(staticDir) + " " + "--search-enabled " + (searchEnabledVal ? "true" : "false") + " " + "--prayer-latitude " + TextHelpers.escapeShellArg(prayerLatVal.toString()) + " " + "--prayer-longitude " + TextHelpers.escapeShellArg(prayerLngVal.toString()) + " " + "--prayer-method " + TextHelpers.escapeShellArg(prayerMethodVal.toString()) + " " + "--user-notes " + TextHelpers.escapeShellArg(userNotesVal);
                 console.log("WEBSERVER_QML: Launching Webserver command: " + startCmd);
                 activeWebserverCommand = startCmd;
                 commandRunner.execute(startCmd);
@@ -1261,34 +1273,76 @@ Item {
         repeat: true
         running: Plasmoid.configuration.webserverEnabled || false
         onTriggered: {
-            if (chatMessageModel.count > 0) {
-                var lastMsg = chatMessageModel.get(chatMessageModel.count - 1);
-                var lastTime = lastMsg.timestamp || 0;
-                var query = "SELECT MAX(timestamp) as max_time FROM messages WHERE session_id = ?";
-                try {
-                    db.readTransaction(function(tx) {
-                        var res = tx.executeSql(query, [currentSessionId]);
-                        if (res.rows.length > 0) {
-                            var maxTime = res.rows.item(0).max_time || 0;
-                            if (maxTime > lastTime) {
-                                console.log("WEBSERVER_QML: Detected external database updates. Refreshing chat...");
-                                _syncChatMessages();
-                                chatPage.positionViewAtEnd();
-                            }
+            // 1. Sync Sessions list
+            try {
+                db.readTransaction(function(tx) {
+                    var res = tx.executeSql("SELECT COUNT(*) as cnt, MAX(updated_at) as max_val FROM sessions");
+                    if (res.rows.length > 0) {
+                        var cnt = res.rows.item(0).cnt || 0;
+                        var maxVal = res.rows.item(0).max_val || 0;
+                        if (cnt !== lastSessionCount || maxVal > lastMaxSessionTime) {
+                            lastSessionCount = cnt;
+                            lastMaxSessionTime = maxVal;
+                            console.log("WEBSERVER_QML: Sessions updated externally. Refreshing sessions list...");
+                            loadSessionList();
                         }
-                    });
-                } catch (e) {
+                    }
+                });
+            } catch (e) {
+            }
+            // 2. Sync Memories list
+            try {
+                db.readTransaction(function(tx) {
+                    var res = tx.executeSql("SELECT COUNT(*) as cnt, MAX(created_at) as max_val FROM memories");
+                    if (res.rows.length > 0) {
+                        var cnt = res.rows.item(0).cnt || 0;
+                        var maxVal = res.rows.item(0).max_val || 0;
+                        if (cnt !== lastMemoryCount || maxVal > lastMaxMemoryTime) {
+                            lastMemoryCount = cnt;
+                            lastMaxMemoryTime = maxVal;
+                            console.log("WEBSERVER_QML: Memories updated externally. Refreshing memories list...");
+                            loadMemoryList();
+                        }
+                    }
+                });
+            } catch (e) {
+            }
+            // 3. Sync Tasks list
+            try {
+                db.readTransaction(function(tx) {
+                    var res = tx.executeSql("SELECT COUNT(*) as cnt, MAX(created_at) as max_c, MAX(completed_at) as max_d FROM tasks");
+                    if (res.rows.length > 0) {
+                        var cnt = res.rows.item(0).cnt || 0;
+                        var maxC = res.rows.item(0).max_c || 0;
+                        var maxD = res.rows.item(0).max_d || 0;
+                        var maxVal = Math.max(maxC, maxD);
+                        if (cnt !== lastTaskCount || maxVal > lastMaxTaskTime) {
+                            lastTaskCount = cnt;
+                            lastMaxTaskTime = maxVal;
+                            console.log("WEBSERVER_QML: Tasks updated externally. Refreshing tasks list...");
+                            reloadTaskList();
+                        }
+                    }
+                });
+            } catch (e) {
+            }
+            // 4. Sync Current Session Messages
+            if (currentSessionId) {
+                var lastTime = 0;
+                if (chatMessageModel.count > 0) {
+                    var lastMsg = chatMessageModel.get(chatMessageModel.count - 1);
+                    lastTime = lastMsg.timestamp || 0;
                 }
-            } else {
-                // If local count is 0, check if any messages exist in active session
-                var queryEmpty = "SELECT COUNT(*) as cnt FROM messages WHERE session_id = ?";
                 try {
                     db.readTransaction(function(tx) {
-                        var res = tx.executeSql(queryEmpty, [currentSessionId]);
-                        if (res.rows.length > 0 && res.rows.item(0).cnt > 0) {
-                            console.log("WEBSERVER_QML: Detected new session messages. Refreshing chat...");
-                            _syncChatMessages();
-                            chatPage.positionViewAtEnd();
+                        var res = tx.executeSql("SELECT COUNT(*) as cnt, MAX(timestamp) as max_time FROM messages WHERE session_id = ?", [currentSessionId]);
+                        if (res.rows.length > 0) {
+                            var cnt = res.rows.item(0).cnt || 0;
+                            var maxTime = res.rows.item(0).max_time || 0;
+                            if (cnt !== chatMessageModel.count || maxTime > lastTime) {
+                                console.log("WEBSERVER_QML: Current chat messages updated externally. Reloading session...");
+                                loadSession(currentSessionId, currentSessionTitle);
+                            }
                         }
                     });
                 } catch (e) {

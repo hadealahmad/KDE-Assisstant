@@ -22,3 +22,7 @@ antigravity-ide/
 
 # Agent memory (not for version control)
 memory/
+
+# Python cache
+__pycache__
+*.pyc
