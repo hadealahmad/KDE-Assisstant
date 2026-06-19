@@ -83,5 +83,14 @@
         <entry name="ttsPiperModelPath" type="String">
             <default></default>
         </entry>
+        <entry name="webserverEnabled" type="Bool">
+            <default>false</default>
+        </entry>
+        <entry name="webserverPort" type="Int">
+            <default>8080</default>
+        </entry>
+        <entry name="webserverToken" type="String">
+            <default></default>
+        </entry>
     </group>
 </kcfg>

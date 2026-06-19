@@ -55,6 +55,8 @@ Item {
     property alias currentlySpokenText: ttsManager.currentlySpokenText
     // ── Command execution state ──────────────────────────────────
     property int activeAssistantIndex: -1
+    property string activeWebserverCommand: ""
+    property string localIpAddress: "127.0.0.1"
 
     function insertTextIntoInput(text) {
         console.log("STT_QML: Inserting text: " + text);
@@ -926,6 +928,47 @@ Item {
         });
     }
 
+    function controlWebserver() {
+        var enabled = Plasmoid.configuration.webserverEnabled || false;
+        var port = Plasmoid.configuration.webserverPort || 8080;
+        var token = Plasmoid.configuration.webserverToken || "";
+        console.log("WEBSERVER_QML: controlWebserver() - Enabled: " + enabled + ", Port: " + port);
+        // Always stop any running webserver process first to prevent port collisions
+        var stopCmd = "pkill -f 'webserver_daemon.py' || true";
+        commandRunner.execute(stopCmd, function(stdout, stderr, exitCode) {
+            console.log("WEBSERVER_QML: Stopped previous webserver process.");
+            if (enabled) {
+                if (token === "") {
+                    // Generate a token if missing
+                    var chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+                    var generatedToken = "";
+                    for (var k = 0; k < 6; k++) {
+                        generatedToken += chars.charAt(Math.floor(Math.random() * chars.length));
+                    }
+                    token = generatedToken;
+                    Plasmoid.configuration.webserverToken = token;
+                }
+                var apiAddr = Plasmoid.configuration.apiUrl || "http://localhost:11434/v1";
+                var apiKeyVal = Plasmoid.configuration.apiKey || "";
+                var modelVal = Plasmoid.configuration.modelName || "llama3";
+                var sysPromptVal = Plasmoid.configuration.systemPrompt || "You are a helpful assistant.";
+                // Get absolute directory path of the plasmoid code/ui
+                var baseDir = Qt.resolvedUrl(".").toString();
+                if (baseDir.indexOf("file://") === 0)
+                    baseDir = baseDir.substring(7);
+
+                if (baseDir.endsWith("/"))
+                    baseDir = baseDir.substring(0, baseDir.length - 1);
+
+                var staticDir = baseDir + "/web";
+                var startCmd = "python3 " + TextHelpers.escapeShellArg(baseDir + "/../code/webserver_daemon.py") + " " + "--port " + port + " " + "--token " + TextHelpers.escapeShellArg(token) + " " + "--api-url " + TextHelpers.escapeShellArg(apiAddr) + " " + "--api-key " + TextHelpers.escapeShellArg(apiKeyVal) + " " + "--model " + TextHelpers.escapeShellArg(modelVal) + " " + "--system-prompt " + TextHelpers.escapeShellArg(sysPromptVal) + " " + "--static-dir " + TextHelpers.escapeShellArg(staticDir);
+                console.log("WEBSERVER_QML: Launching Webserver command: " + startCmd);
+                activeWebserverCommand = startCmd;
+                commandRunner.execute(startCmd);
+            }
+        });
+    }
+
     onWindowChanged: {
         if (window && _originalFlags === 0)
             _originalFlags = window.flags;
@@ -948,6 +991,19 @@ Item {
         if (Plasmoid.expanded || Plasmoid.containmentType !== Plasmoid.PanelContainment)
             chatPage.forceActiveFocus();
 
+        // Retrieve local IP address for QML helper / QR code
+        commandRunner.execute("ip route get 1.1.1.1 2>/dev/null | awk '{print $7}' || ip addr | grep -v '127.0.0.1' | grep 'inet ' | awk '{print $2}' | cut -d/ -f1 | head -n1", function(stdout, stderr, exitCode) {
+            var ip = stdout.trim();
+            if (ip)
+                fullRepRoot.localIpAddress = ip;
+            else
+                fullRepRoot.localIpAddress = "127.0.0.1";
+        });
+        controlWebserver();
+    }
+    Component.onDestruction: {
+        console.log("WEBSERVER_QML: Component destruction. Stopping webserver...");
+        commandRunner.execute("pkill -f 'webserver_daemon.py' || true");
     }
 
     Binding {
@@ -1042,6 +1098,10 @@ Item {
             sttBackend: Plasmoid.configuration.sttBackend || "disabled"
             keepOpen: root.keepOpen
             memoryCount: fullRepRoot.chatMemoryModel.count
+            webserverEnabled: Plasmoid.configuration.webserverEnabled || false
+            webserverPort: (Plasmoid.configuration.webserverPort || 8080).toString()
+            webserverToken: Plasmoid.configuration.webserverToken || ""
+            localIpAddress: fullRepRoot.localIpAddress
             onSendMessage: fullRepRoot.sendMessage()
             onSpeakRequested: function(text) {
                 ttsManager.speakText(text);
@@ -1054,6 +1114,7 @@ Item {
             onCopyConversation: fullRepRoot.copyConversationToClipboard()
             onOpenSettings: Plasmoid.internalAction("configure").trigger()
             onTogglePin: root.keepOpen = !root.keepOpen
+            onToggleWebserver: Plasmoid.configuration.webserverEnabled = !Plasmoid.configuration.webserverEnabled
             onToggleHistory: {
                 historyViewActive = true;
             }
@@ -1150,6 +1211,89 @@ Item {
         fileMode: FileDialog.OpenFiles
         onAccepted: {
             fullRepRoot.processSelectedFiles(selectedFiles);
+        }
+    }
+
+    Connections {
+        function onWebserverEnabledChanged() {
+            controlWebserver();
+        }
+
+        function onWebserverPortChanged() {
+            controlWebserver();
+        }
+
+        function onWebserverTokenChanged() {
+            controlWebserver();
+        }
+
+        function onApiUrlChanged() {
+            if (Plasmoid.configuration.webserverEnabled)
+                controlWebserver();
+
+        }
+
+        function onModelNameChanged() {
+            if (Plasmoid.configuration.webserverEnabled)
+                controlWebserver();
+
+        }
+
+        function onApiKeyChanged() {
+            if (Plasmoid.configuration.webserverEnabled)
+                controlWebserver();
+
+        }
+
+        function onSystemPromptChanged() {
+            if (Plasmoid.configuration.webserverEnabled)
+                controlWebserver();
+
+        }
+
+        target: Plasmoid.configuration
+    }
+
+    Timer {
+        id: dbChangeWatcher
+
+        interval: 3000
+        repeat: true
+        running: Plasmoid.configuration.webserverEnabled || false
+        onTriggered: {
+            if (chatMessageModel.count > 0) {
+                var lastMsg = chatMessageModel.get(chatMessageModel.count - 1);
+                var lastTime = lastMsg.timestamp || 0;
+                var query = "SELECT MAX(timestamp) as max_time FROM messages WHERE session_id = ?";
+                try {
+                    db.readTransaction(function(tx) {
+                        var res = tx.executeSql(query, [currentSessionId]);
+                        if (res.rows.length > 0) {
+                            var maxTime = res.rows.item(0).max_time || 0;
+                            if (maxTime > lastTime) {
+                                console.log("WEBSERVER_QML: Detected external database updates. Refreshing chat...");
+                                _syncChatMessages();
+                                chatPage.positionViewAtEnd();
+                            }
+                        }
+                    });
+                } catch (e) {
+                }
+            } else {
+                // If local count is 0, check if any messages exist in active session
+                var queryEmpty = "SELECT COUNT(*) as cnt FROM messages WHERE session_id = ?";
+                try {
+                    db.readTransaction(function(tx) {
+                        var res = tx.executeSql(queryEmpty, [currentSessionId]);
+                        if (res.rows.length > 0 && res.rows.item(0).cnt > 0) {
+                            console.log("WEBSERVER_QML: Detected new session messages. Refreshing chat...");
+                            _syncChatMessages();
+                            chatPage.positionViewAtEnd();
+                        }
+                    });
+                } catch (e) {
+                }
+            }
         }
     }
 

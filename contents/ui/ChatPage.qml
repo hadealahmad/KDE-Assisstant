@@ -11,7 +11,9 @@ import "components" as Components
 import org.kde.kirigami as Kirigami
 import org.kde.plasma.components as PlasmaComponents
 
-ColumnLayout {
+Item {
+    // Close ColumnLayout
+
     id: chatPageRoot
 
     // ── External references ──────────────────────────────────
@@ -31,6 +33,11 @@ ColumnLayout {
     property string sttBackend: "disabled"
     property bool keepOpen: false
     property int memoryCount: 0
+    property bool webserverEnabled: false
+    property string webserverPort: "8080"
+    property string webserverToken: ""
+    property string localIpAddress: "127.0.0.1"
+    property bool mobilePanelVisible: false
     readonly property var chatMessages: fullRep ? fullRep.chatMessages : []
     // ── Input area access for STT ────────────────────────────
     property alias inputText: inputBar.text
@@ -42,6 +49,7 @@ ColumnLayout {
     signal copyConversation()
     signal openSettings()
     signal togglePin()
+    signal toggleWebserver()
     signal toggleHistory()
     signal toggleTasks()
     signal toggleMemories()
@@ -78,266 +86,289 @@ ColumnLayout {
         });
     }
 
-    spacing: 0
+    ColumnLayout {
+        anchors.fill: parent
+        spacing: 0
 
-    // ── Header ───────────────────────────────────────────────
-    PageHeader {
-        showBackButton: false
-        title: chatPageRoot.currentSessionTitle
-        actionButtons: [{
-            "icon": "chronometer",
-            "tooltip": "Chat History",
-            "onClicked": function() {
-                chatPageRoot.toggleHistory();
-            }
-        }, {
-            "icon": "list-add",
-            "tooltip": "New Chat",
-            "onClicked": function() {
-                chatPageRoot.startNewSession();
-            }
-        }, {
-            "icon": "edit-copy",
-            "tooltip": "Copy Conversation",
-            "onClicked": function() {
-                chatPageRoot.copyConversation();
-            }
-        }, {
-            "icon": "view-task",
-            "tooltip": "Tasks",
-            "onClicked": function() {
-                chatPageRoot.toggleTasks();
-            }
-        }, {
-            "icon": "view-list-text",
-            "tooltip": "Memories (" + chatPageRoot.memoryCount + ")",
-            "onClicked": function() {
-                chatPageRoot.toggleMemories();
-            }
-        }, {
-            "icon": "configure",
-            "tooltip": "Settings",
-            "onClicked": function() {
-                chatPageRoot.openSettings();
-            }
-        }, {
-            "icon": chatPageRoot.keepOpen ? "window-unpin" : "window-pin",
-            "tooltip": chatPageRoot.keepOpen ? "Unpin (auto-close)" : "Pin (keep open)",
-            "onClicked": function() {
-                chatPageRoot.togglePin();
-            }
-        }]
-    }
-
-    // Context Usage Header component
-    Components.ContextUsageHeader {
-        modelName: chatPageRoot.modelName
-        contextUsedChars: chatPageRoot.contextUsedChars
-        contextMaxChars: chatPageRoot.contextMaxChars
-        contextUsagePercent: chatPageRoot.contextUsagePercent
-    }
-
-    Kirigami.Separator {
-        Layout.fillWidth: true
-    }
-
-    // Message list
-    ListView {
-        id: chatList
-
-        Layout.fillWidth: true
-        Layout.fillHeight: true
-        clip: true
-        model: chatPageRoot.chatMessages
-        spacing: Kirigami.Units.smallSpacing
-        topMargin: Kirigami.Units.smallSpacing
-        bottomMargin: Kirigami.Units.smallSpacing
-        leftMargin: Kirigami.Units.smallSpacing
-        rightMargin: Kirigami.Units.smallSpacing
-        cacheBuffer: 100000
-
-        // Empty state
-        Kirigami.PlaceholderMessage {
-            anchors.centerIn: parent
-            width: parent.width - Kirigami.Units.gridUnit * 4
-            visible: chatPageRoot.chatMessages.length === 0
-            icon.name: "assistant"
-            text: "KDE Assistant"
-            explanation: "Ask anything. Powered by " + (chatPageRoot.modelName || "your LLM") + " at " + (chatPageRoot.apiUrl || "localhost")
-        }
-
-        Controls.ScrollBar.vertical: Controls.ScrollBar {
-            policy: Controls.ScrollBar.AsNeeded
-            visible: chatList.contentHeight > chatList.height
-        }
-
-        Controls.ScrollBar.horizontal: Controls.ScrollBar {
-            policy: Controls.ScrollBar.AlwaysOff
-            visible: false
-        }
-
-        delegate: Item {
-            id: delegateRoot
-
-            required property var modelData
-            required property int index
-
-            width: chatList.width - chatList.leftMargin - chatList.rightMargin - Kirigami.Units.gridUnit * 1.5
-            height: messageCard.implicitHeight
-
-            ChatMessage {
-                id: messageCard
-
-                width: parent.width
-                messageText: delegateRoot.modelData.content ?? ""
-                role: delegateRoot.modelData.role ?? ""
-                isError: delegateRoot.modelData.isError ?? false
-                messageIndex: delegateRoot.index
-                approvalStatus: delegateRoot.modelData.approvalStatus ?? ""
-                approvalResult: delegateRoot.modelData.approvalResult ?? ""
-                isCommand: delegateRoot.modelData.isCommand ?? false
-                commandCode: delegateRoot.modelData.commandCode ?? ""
-                commandOutput: delegateRoot.modelData.commandOutput ?? ""
-                commandStatus: delegateRoot.modelData.commandStatus ?? ""
-                memoryContent: delegateRoot.modelData.memoryContent ?? ""
-                memoryId: delegateRoot.modelData.memoryId ?? ""
-                attachmentsJson: delegateRoot.modelData.attachmentsJson ?? ""
-                taskTitle: delegateRoot.modelData.taskTitle ?? ""
-                taskGroupId: delegateRoot.modelData.taskGroupId ?? ""
-                taskPriority: delegateRoot.modelData.taskPriority ?? 0
-                taskDueDate: delegateRoot.modelData.taskDueDate ?? ""
-                onApproveSettingRequested: function(command, description, index) {
-                    chatPageRoot.approveSettingRequested(command, description, index);
+        // ── Header ───────────────────────────────────────────────
+        PageHeader {
+            showBackButton: false
+            title: chatPageRoot.currentSessionTitle
+            actionButtons: [{
+                "icon": "chronometer",
+                "tooltip": "Chat History",
+                "onClicked": function() {
+                    chatPageRoot.toggleHistory();
                 }
-                onDeclineSettingRequested: function(description, index) {
-                    chatPageRoot.declineSettingRequested(description, index);
+            }, {
+                "icon": "list-add",
+                "tooltip": "New Chat",
+                "onClicked": function() {
+                    chatPageRoot.startNewSession();
                 }
-                onDeleteMemoryRequested: function(memoryId, index) {
-                    chatPageRoot.deleteMemoryRequested(memoryId, index);
+            }, {
+                "icon": "edit-copy",
+                "tooltip": "Copy Conversation",
+                "onClicked": function() {
+                    chatPageRoot.copyConversation();
                 }
-                onViewTasksRequested: chatPageRoot.toggleTasks()
-                onOpenFileRequested: function(filePath) {
-                    chatPageRoot.openFileRequested(filePath);
+            }, {
+                "icon": "view-task",
+                "tooltip": "Tasks",
+                "onClicked": function() {
+                    chatPageRoot.toggleTasks();
                 }
-                onOpenAttachmentRequested: function(attachment) {
-                    chatPageRoot.openAttachmentRequested(attachment);
+            }, {
+                "icon": "view-list-text",
+                "tooltip": "Memories (" + chatPageRoot.memoryCount + ")",
+                "onClicked": function() {
+                    chatPageRoot.toggleMemories();
                 }
-                onSpeakRequested: function(text) {
-                    chatPageRoot.speakRequested(text);
+            }, {
+                "icon": chatPageRoot.webserverEnabled ? "network-server" : "network-offline",
+                "tooltip": chatPageRoot.webserverEnabled ? "Mobile Integration (Active)" : "Mobile Integration (Stopped)",
+                "onClicked": function() {
+                    chatPageRoot.mobilePanelVisible = true;
                 }
-                onStopSpeakRequested: {
-                    chatPageRoot.stopSpeakRequested();
+            }, {
+                "icon": "configure",
+                "tooltip": "Settings",
+                "onClicked": function() {
+                    chatPageRoot.openSettings();
                 }
-            }
-
+            }, {
+                "icon": chatPageRoot.keepOpen ? "window-unpin" : "window-pin",
+                "tooltip": chatPageRoot.keepOpen ? "Unpin (auto-close)" : "Pin (keep open)",
+                "onClicked": function() {
+                    chatPageRoot.togglePin();
+                }
+            }]
         }
 
-    }
-
-    Kirigami.Separator {
-        Layout.fillWidth: true
-    }
-
-    // Attachment error display
-    Controls.Label {
-        Layout.fillWidth: true
-        Layout.leftMargin: Kirigami.Units.smallSpacing * 2
-        text: chatPageRoot.attachmentErrorText
-        font.pointSize: Kirigami.Theme.smallFont.pointSize
-        color: Kirigami.Theme.negativeTextColor
-        visible: chatPageRoot.attachmentErrorText !== ""
-        height: visible ? implicitHeight + Kirigami.Units.smallSpacing : 0
-        wrapMode: Text.WordWrap
-    }
-
-    Timer {
-        id: attachmentErrorTimer
-
-        interval: 5000
-        onTriggered: chatPageRoot.attachmentErrorText = ""
-    }
-
-    // Staged pending attachment preview strip
-    Components.PendingAttachmentsBar {
-        visible: chatPageRoot.pendingAttachments.length > 0
-        pendingAttachments: chatPageRoot.pendingAttachments
-        onRemoveRequested: function(index) {
-            chatPageRoot.removeAttachment(index);
-        }
-    }
-
-    // Streaming indicator
-    Controls.Label {
-        Layout.fillWidth: true
-        Layout.leftMargin: Kirigami.Units.smallSpacing * 2
-        text: "Generating…"
-        font.pointSize: Kirigami.Theme.smallFont.pointSize
-        color: Kirigami.Theme.disabledTextColor
-        visible: chatPageRoot.isStreaming
-        height: visible ? implicitHeight + Kirigami.Units.smallSpacing : 0
-
-        Behavior on height {
-            NumberAnimation {
-                duration: 150
-            }
-
+        // Context Usage Header component
+        Components.ContextUsageHeader {
+            modelName: chatPageRoot.modelName
+            contextUsedChars: chatPageRoot.contextUsedChars
+            contextMaxChars: chatPageRoot.contextMaxChars
+            contextUsagePercent: chatPageRoot.contextUsagePercent
         }
 
-    }
-
-    // Modularized Input Row
-    Components.ChatInputBar {
-        id: inputBar
-
-        isStreaming: chatPageRoot.isStreaming
-        isRecording: chatPageRoot.isRecording
-        sttBackend: chatPageRoot.sttBackend
-        sttErrorText: chatPageRoot.sttErrorText
-        hasAttachments: chatPageRoot.pendingAttachments.length > 0
-        onSendRequested: chatPageRoot.sendMessage()
-        onAttachRequested: chatPageRoot.openFilePicker()
-        onMicToggleRequested: chatPageRoot.toggleRecording()
-        onStopRequested: chatPageRoot.stopStreaming()
-    }
-
-    // Drag-and-drop overlay on chat area
-    DropArea {
-        anchors.fill: chatList
-        keys: ["text/uri-list"]
-        onEntered: function(drag) {
-            dropOverlay.visible = true;
-        }
-        onExited: {
-            dropOverlay.visible = false;
-        }
-        onDropped: function(drop) {
-            dropOverlay.visible = false;
-            if (drop.hasUrls)
-                chatPageRoot.filesDropped(drop.urls);
-
+        Kirigami.Separator {
+            Layout.fillWidth: true
         }
 
-        Rectangle {
-            id: dropOverlay
+        // Message list
+        ListView {
+            id: chatList
 
-            visible: false
-            anchors.fill: parent
-            color: Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g, Kirigami.Theme.highlightColor.b, 0.1)
-            border.color: Kirigami.Theme.highlightColor
-            border.width: 2
-            radius: Kirigami.Units.smallSpacing
-            z: 100
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            clip: true
+            model: chatPageRoot.chatMessages
+            spacing: Kirigami.Units.smallSpacing
+            topMargin: Kirigami.Units.smallSpacing
+            bottomMargin: Kirigami.Units.smallSpacing
+            leftMargin: Kirigami.Units.smallSpacing
+            rightMargin: Kirigami.Units.smallSpacing
+            cacheBuffer: 100000
 
+            // Empty state
             Kirigami.PlaceholderMessage {
                 anchors.centerIn: parent
                 width: parent.width - Kirigami.Units.gridUnit * 4
-                icon.name: "mail-attachment"
-                text: "Drop files to attach"
-                explanation: "Text files will be read inline. Images and PDFs will be sent to the model."
+                visible: chatPageRoot.chatMessages.length === 0
+                icon.name: "assistant"
+                text: "KDE Assistant"
+                explanation: "Ask anything. Powered by " + (chatPageRoot.modelName || "your LLM") + " at " + (chatPageRoot.apiUrl || "localhost")
+            }
+
+            Controls.ScrollBar.vertical: Controls.ScrollBar {
+                policy: Controls.ScrollBar.AsNeeded
+                visible: chatList.contentHeight > chatList.height
+            }
+
+            Controls.ScrollBar.horizontal: Controls.ScrollBar {
+                policy: Controls.ScrollBar.AlwaysOff
+                visible: false
+            }
+
+            delegate: Item {
+                id: delegateRoot
+
+                required property var modelData
+                required property int index
+
+                width: chatList.width - chatList.leftMargin - chatList.rightMargin - Kirigami.Units.gridUnit * 1.5
+                height: messageCard.implicitHeight
+
+                ChatMessage {
+                    id: messageCard
+
+                    width: parent.width
+                    messageText: delegateRoot.modelData.content ?? ""
+                    role: delegateRoot.modelData.role ?? ""
+                    isError: delegateRoot.modelData.isError ?? false
+                    messageIndex: delegateRoot.index
+                    approvalStatus: delegateRoot.modelData.approvalStatus ?? ""
+                    approvalResult: delegateRoot.modelData.approvalResult ?? ""
+                    isCommand: delegateRoot.modelData.isCommand ?? false
+                    commandCode: delegateRoot.modelData.commandCode ?? ""
+                    commandOutput: delegateRoot.modelData.commandOutput ?? ""
+                    commandStatus: delegateRoot.modelData.commandStatus ?? ""
+                    memoryContent: delegateRoot.modelData.memoryContent ?? ""
+                    memoryId: delegateRoot.modelData.memoryId ?? ""
+                    attachmentsJson: delegateRoot.modelData.attachmentsJson ?? ""
+                    taskTitle: delegateRoot.modelData.taskTitle ?? ""
+                    taskGroupId: delegateRoot.modelData.taskGroupId ?? ""
+                    taskPriority: delegateRoot.modelData.taskPriority ?? 0
+                    taskDueDate: delegateRoot.modelData.taskDueDate ?? ""
+                    onApproveSettingRequested: function(command, description, index) {
+                        chatPageRoot.approveSettingRequested(command, description, index);
+                    }
+                    onDeclineSettingRequested: function(description, index) {
+                        chatPageRoot.declineSettingRequested(description, index);
+                    }
+                    onDeleteMemoryRequested: function(memoryId, index) {
+                        chatPageRoot.deleteMemoryRequested(memoryId, index);
+                    }
+                    onViewTasksRequested: chatPageRoot.toggleTasks()
+                    onOpenFileRequested: function(filePath) {
+                        chatPageRoot.openFileRequested(filePath);
+                    }
+                    onOpenAttachmentRequested: function(attachment) {
+                        chatPageRoot.openAttachmentRequested(attachment);
+                    }
+                    onSpeakRequested: function(text) {
+                        chatPageRoot.speakRequested(text);
+                    }
+                    onStopSpeakRequested: {
+                        chatPageRoot.stopSpeakRequested();
+                    }
+                }
+
             }
 
         }
 
+        Kirigami.Separator {
+            Layout.fillWidth: true
+        }
+
+        // Attachment error display
+        Controls.Label {
+            Layout.fillWidth: true
+            Layout.leftMargin: Kirigami.Units.smallSpacing * 2
+            text: chatPageRoot.attachmentErrorText
+            font.pointSize: Kirigami.Theme.smallFont.pointSize
+            color: Kirigami.Theme.negativeTextColor
+            visible: chatPageRoot.attachmentErrorText !== ""
+            height: visible ? implicitHeight + Kirigami.Units.smallSpacing : 0
+            wrapMode: Text.WordWrap
+        }
+
+        Timer {
+            id: attachmentErrorTimer
+
+            interval: 5000
+            onTriggered: chatPageRoot.attachmentErrorText = ""
+        }
+
+        // Staged pending attachment preview strip
+        Components.PendingAttachmentsBar {
+            visible: chatPageRoot.pendingAttachments.length > 0
+            pendingAttachments: chatPageRoot.pendingAttachments
+            onRemoveRequested: function(index) {
+                chatPageRoot.removeAttachment(index);
+            }
+        }
+
+        // Streaming indicator
+        Controls.Label {
+            Layout.fillWidth: true
+            Layout.leftMargin: Kirigami.Units.smallSpacing * 2
+            text: "Generating…"
+            font.pointSize: Kirigami.Theme.smallFont.pointSize
+            color: Kirigami.Theme.disabledTextColor
+            visible: chatPageRoot.isStreaming
+            height: visible ? implicitHeight + Kirigami.Units.smallSpacing : 0
+
+            Behavior on height {
+                NumberAnimation {
+                    duration: 150
+                }
+
+            }
+
+        }
+
+        // Modularized Input Row
+        Components.ChatInputBar {
+            id: inputBar
+
+            isStreaming: chatPageRoot.isStreaming
+            isRecording: chatPageRoot.isRecording
+            sttBackend: chatPageRoot.sttBackend
+            sttErrorText: chatPageRoot.sttErrorText
+            hasAttachments: chatPageRoot.pendingAttachments.length > 0
+            onSendRequested: chatPageRoot.sendMessage()
+            onAttachRequested: chatPageRoot.openFilePicker()
+            onMicToggleRequested: chatPageRoot.toggleRecording()
+            onStopRequested: chatPageRoot.stopStreaming()
+        }
+
+        // Drag-and-drop overlay on chat area
+        DropArea {
+            anchors.fill: chatList
+            keys: ["text/uri-list"]
+            onEntered: function(drag) {
+                dropOverlay.visible = true;
+            }
+            onExited: {
+                dropOverlay.visible = false;
+            }
+            onDropped: function(drop) {
+                dropOverlay.visible = false;
+                if (drop.hasUrls)
+                    chatPageRoot.filesDropped(drop.urls);
+
+            }
+
+            Rectangle {
+                id: dropOverlay
+
+                visible: false
+                anchors.fill: parent
+                color: Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g, Kirigami.Theme.highlightColor.b, 0.1)
+                border.color: Kirigami.Theme.highlightColor
+                border.width: 2
+                radius: Kirigami.Units.smallSpacing
+                z: 100
+
+                Kirigami.PlaceholderMessage {
+                    anchors.centerIn: parent
+                    width: parent.width - Kirigami.Units.gridUnit * 4
+                    icon.name: "mail-attachment"
+                    text: "Drop files to attach"
+                    explanation: "Text files will be read inline. Images and PDFs will be sent to the model."
+                }
+
+            }
+
+        }
+
+    }
+
+    // Overlay panel for mobile connection details
+    Components.MobileServerPanel {
+        id: mobileServerPanel
+
+        visible: chatPageRoot.mobilePanelVisible
+        localIp: chatPageRoot.localIpAddress
+        port: chatPageRoot.webserverPort
+        token: chatPageRoot.webserverToken
+        webserverEnabled: chatPageRoot.webserverEnabled
+        onToggleWebserver: chatPageRoot.toggleWebserver()
+        onCloseRequested: chatPageRoot.mobilePanelVisible = false
     }
 
 }

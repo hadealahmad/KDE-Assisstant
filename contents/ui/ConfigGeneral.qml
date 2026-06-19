@@ -36,6 +36,11 @@ QQC2.ScrollView {
     property string cfg_ttsBackend: plasmoid.configuration.ttsBackend || "disabled"
     property alias cfg_ttsPiperCliPath: ttsPiperCli.text
     property string cfg_ttsPiperModelPath: plasmoid.configuration.ttsPiperModelPath || ""
+    // Web Server configuration
+    property alias cfg_webserverEnabled: webserverEnabled.checked
+    property alias cfg_webserverPort: webserverPort.value
+    property string cfg_webserverToken: plasmoid.configuration.webserverToken || ""
+    property string _localIpAddress: "127.0.0.1"
     property string _downloadStatus: "Not Downloaded"
     property var _piperVoicePresets: [{
         "name": "English Amy (Low)",
@@ -210,6 +215,24 @@ QQC2.ScrollView {
             }
         }
         _checkModelStatus();
+        // Generate random webserver passcode token if none exists
+        if (cfg_webserverToken === "") {
+            var chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+            var token = "";
+            for (var k = 0; k < 6; k++) {
+                token += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            cfg_webserverToken = token;
+            plasmoid.configuration.webserverToken = token;
+        }
+        // Retrieve local IP address for helper label
+        configRunner.execute("ip route get 1.1.1.1 2>/dev/null | awk '{print $7}' || ip addr | grep -v '127.0.0.1' | grep 'inet ' | awk '{print $2}' | cut -d/ -f1 | head -n1", function(stdout, stderr, exitCode) {
+            var ip = stdout.trim();
+            if (ip)
+                _localIpAddress = ip;
+            else
+                _localIpAddress = "127.0.0.1";
+        });
     }
     QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AlwaysOff
 
@@ -231,6 +254,7 @@ QQC2.ScrollView {
         // ── SECTION: Prayer Times ─────────────────────────────
         // ── SECTION: Speech-to-Text (STT) ──────────────────────────
         // ── SECTION: Text-to-Speech (TTS) ──────────────────────────
+        // ── SECTION: Mobile Web Access ──────────────────────────
 
         id: page
 
@@ -1028,6 +1052,69 @@ QQC2.ScrollView {
                     scrollRoot.cfg_ttsPiperModelPath = text;
 
             }
+        }
+
+        Item {
+            Kirigami.FormData.isSection: true
+            Kirigami.FormData.label: i18n("Mobile Web Access")
+        }
+
+        QQC2.CheckBox {
+            id: webserverEnabled
+
+            Kirigami.FormData.label: i18n("Local Web Server:")
+            text: i18n("Enable Mobile Access (Access via Local Network)")
+        }
+
+        QQC2.SpinBox {
+            id: webserverPort
+
+            Kirigami.FormData.label: i18n("Server Port:")
+            from: 1024
+            to: 65535
+            stepSize: 1
+            editable: true
+            Component.onCompleted: value = plasmoid.configuration.webserverPort || 8080
+            onValueModified: plasmoid.configuration.webserverPort = value
+        }
+
+        QQC2.TextField {
+            id: webserverTokenField
+
+            Kirigami.FormData.label: i18n("Access Passcode:")
+            text: scrollRoot.cfg_webserverToken
+            readOnly: true
+            selectByMouse: true
+            placeholderText: "token"
+            Layout.fillWidth: true
+
+            QQC2.Button {
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                icon.name: "edit-clear"
+                text: i18n("Regenerate")
+                onClicked: {
+                    var chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+                    var token = "";
+                    for (var k = 0; k < 6; k++) {
+                        token += chars.charAt(Math.floor(Math.random() * chars.length));
+                    }
+                    scrollRoot.cfg_webserverToken = token;
+                    plasmoid.configuration.webserverToken = token;
+                }
+            }
+
+        }
+
+        QQC2.Label {
+            visible: webserverEnabled.checked
+            font.italic: true
+            font.pixelSize: Kirigami.Theme.smallFont.pixelSize
+            color: Kirigami.Theme.highlightColor
+            text: i18n("Access on your mobile device at: ") + "http://" + scrollRoot._localIpAddress + ":" + webserverPort.value + "?token=" + scrollRoot.cfg_webserverToken
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
         }
 
     }

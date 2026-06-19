@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>KDE Assistant Mobile</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app-container">
+        <!-- Sidebar for History Sessions -->
+        <aside id="sidebar">
+            <div class="sidebar-header">
+                <h2>History</h2>
+                <button id="new-chat-btn" class="icon-btn" title="New Chat">+</button>
+            </div>
+            <div id="sessions-list" class="scroll-area">
+                <!-- Loaded dynamically -->
+            </div>
+        </aside>
+
+        <!-- Main Chat Area -->
+        <main id="chat-container">
+            <header id="chat-header">
+                <button id="menu-toggle-btn" class="icon-btn">☰</button>
+                <h1 id="session-title">New Chat</h1>
+                <div class="header-actions">
+                    <!-- Placeholder/Indicators -->
+                </div>
+            </header>
+
+            <!-- Chat flow area -->
+            <section id="chat-flow" class="scroll-area">
+                <div class="empty-state">
+                    <div class="assistant-logo">🤖</div>
+                    <h3>KDE Assistant</h3>
+                    <p>Ask anything. Accessing your local desktop LLM model from your phone.</p>
+                </div>
+            </section>
+
+            <!-- Input area -->
+            <footer id="chat-input-container">
+                <div class="input-wrapper">
+                    <textarea id="prompt-input" placeholder="Type a message..." rows="1"></textarea>
+                    <button id="send-btn" class="icon-btn">➔</button>
+                </div>
+            </footer>
+        </main>
+    </div>
+
+    <!-- Token Authentication Modal Overlay -->
+    <div id="auth-modal" class="modal-overlay">
+        <div class="modal-content">
+            <h3>Enter Access Passcode</h3>
+            <p>Please enter the 6-character access passcode shown on your computer's KDE settings screen.</p>
+            <input type="text" id="passcode-input" maxlength="6" placeholder="XXXXXX">
+            <button id="auth-submit-btn">Verify</button>
+            <p id="auth-error-msg" class="error"></p>
+        </div>
+    </div>
+
+    <!-- Logic client -->
+    <script src="app.js"></script>
+</body>
+</html>
