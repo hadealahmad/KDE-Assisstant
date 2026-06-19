@@ -8,6 +8,7 @@ A feature-rich AI chat plasmoid for **KDE Plasma 6**. Lives in your panel or des
 - **Memory System** — Ask the assistant to remember things; persisted locally and injected into context automatically
 - **Task Management** — Groups, priorities, due dates, recurrence, subtasks. Create manually or let the AI create them conversationally
 - **Voice Typing** — Speech-to-text via local Whisper.cpp, remote Whisper API, or LM Studio
+- **Read Aloud (TTS)** — Local Text-to-Speech readout supporting Speech Dispatcher (`spd-say`) and Piper Neural TTS with an integrated Hugging Face model downloader
 - **File Attachments** — Text, images, and PDFs with drag-and-drop support
 - **Web & Code Search** — DuckDuckGo, Tavily, Searxng, Google, plus local grep/ripgrep
 - **Shell Execution** — AI can run commands with approve/reject approval flow
@@ -65,6 +66,7 @@ contents/
     └── components/             # Decoupled UI & logic components
         ├── CommandRunner.qml          # Non-visual shell execution manager
         ├── SpeechToTextManager.qml    # Non-visual voice recording lifecycle
+        ├── TextToSpeechManager.qml    # Non-visual speech readout controller
         ├── ChatInputBar.qml           # Prompts, STT, and attachment controls
         ├── PendingAttachmentsBar.qml  # Preview strip for staged files
         ├── ContextUsageHeader.qml     # Active model & context tracking bar
