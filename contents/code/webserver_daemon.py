@@ -477,15 +477,24 @@ class WebServerHandler(BaseHTTPRequestHandler):
                         
                     mem_id = f"mem_{int(time.time() * 1000)}_{os.urandom(4).hex()}"
                     
-                    cursor.execute("INSERT INTO memories (id, content, created_at, source_session_id) VALUES (?, ?, ?, ?)",
-                                   (mem_id, mem_content, assistant_now, session_id))
-                    
-                    memory_card_content = json.dumps({"id": mem_id, "content": mem_content})
-                    cursor.execute("INSERT INTO messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)",
-                                   (f"msg_mem_{assistant_now}", session_id, "memory", memory_card_content, assistant_now))
-                    
-                    cursor.execute("INSERT INTO messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)",
-                                   (f"msg_assistant_{assistant_now}_text", session_id, "assistant", clean_response, assistant_now + 1))
+                    try:
+                        cursor.execute("INSERT INTO memories (id, content, created_at, source_session_id) VALUES (?, ?, ?, ?)",
+                                       (mem_id, mem_content, assistant_now, session_id))
+                        
+                        memory_card_content = json.dumps({"id": mem_id, "content": mem_content})
+                        cursor.execute("INSERT INTO messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)",
+                                       (f"msg_mem_{assistant_now}", session_id, "memory", memory_card_content, assistant_now))
+                        
+                        cursor.execute("INSERT INTO messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)",
+                                       (f"msg_assistant_{assistant_now}_text", session_id, "assistant", clean_response, assistant_now + 1))
+                        
+                        # Trigger system notification
+                        subprocess.run(["notify-send", "-i", "dialog-information", "KDE Assistant", f"Memory Saved: {mem_content}"], capture_output=True)
+                    except Exception as e:
+                        cursor.execute("INSERT INTO messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)",
+                                       (f"msg_mem_{assistant_now}_err", session_id, "error", f"Failed to save memory: database error.", assistant_now))
+                        # Trigger fail system notification
+                        subprocess.run(["notify-send", "-i", "dialog-error", "KDE Assistant", "Failed to save memory."], capture_output=True)
                     
                 elif cmd_tag["type"] in ("task", "add_task"):
                     task_title = cmd_tag["title"]
@@ -499,44 +508,53 @@ class WebServerHandler(BaseHTTPRequestHandler):
                     if not clean_response:
                         clean_response = f"I've added the task: \"{task_title}\""
                         
-                    group_id = ""
-                    if group_name:
-                        cursor.execute("SELECT id FROM task_groups WHERE name = ?", (group_name,))
-                        group_row = cursor.fetchone()
-                        if group_row:
-                            group_id = group_row[0]
-                        else:
-                            group_id = f"group_{int(time.time() * 1000)}"
-                            cursor.execute("INSERT INTO task_groups (id, name, created_at) VALUES (?, ?, ?)",
-                                           (group_id, group_name, assistant_now))
-                    
-                    priority_val = 0
-                    if priority_str == "high": priority_val = 3
-                    elif priority_str == "medium": priority_val = 2
-                    elif priority_str == "low": priority_val = 1
-                    
-                    due_date = None
-                    if due_str:
-                        try:
-                            from datetime import datetime
-                            dt = datetime.fromisoformat(due_str.replace('Z', '+00:00'))
-                            due_date = int(dt.timestamp() * 1000)
-                        except Exception:
-                            pass
-                    
-                    task_id = f"task_{int(time.time() * 1000)}_{os.urandom(4).hex()}"
-                    
-                    cursor.execute("""
-                        INSERT INTO tasks (id, group_id, title, description, status, priority, due_date, recurrence, created_at, source_session_id)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (task_id, group_id, task_title, description, 'pending', priority_val, due_date, recurrence, assistant_now, session_id))
-                    
-                    task_card_content = json.dumps({"id": task_id, "title": task_title})
-                    cursor.execute("INSERT INTO messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)",
-                                   (f"msg_task_{assistant_now}", session_id, "task", task_card_content, assistant_now))
-                    
-                    cursor.execute("INSERT INTO messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)",
-                                   (f"msg_assistant_{assistant_now}_text", session_id, "assistant", clean_response, assistant_now + 1))
+                    try:
+                        group_id = ""
+                        if group_name:
+                            cursor.execute("SELECT id FROM task_groups WHERE name = ?", (group_name,))
+                            group_row = cursor.fetchone()
+                            if group_row:
+                                group_id = group_row[0]
+                            else:
+                                group_id = f"group_{int(time.time() * 1000)}"
+                                cursor.execute("INSERT INTO task_groups (id, name, created_at) VALUES (?, ?, ?)",
+                                               (group_id, group_name, assistant_now))
+                        
+                        priority_val = 0
+                        if priority_str == "high": priority_val = 3
+                        elif priority_str == "medium": priority_val = 2
+                        elif priority_str == "low": priority_val = 1
+                        
+                        due_date = None
+                        if due_str:
+                            try:
+                                from datetime import datetime
+                                dt = datetime.fromisoformat(due_str.replace('Z', '+00:00'))
+                                due_date = int(dt.timestamp() * 1000)
+                            except Exception:
+                                pass
+                        
+                        task_id = f"task_{int(time.time() * 1000)}_{os.urandom(4).hex()}"
+                        
+                        cursor.execute("""
+                            INSERT INTO tasks (id, group_id, title, description, status, priority, due_date, recurrence, created_at, source_session_id)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (task_id, group_id, task_title, description, 'pending', priority_val, due_date, recurrence, assistant_now, session_id))
+                        
+                        task_card_content = json.dumps({"id": task_id, "title": task_title})
+                        cursor.execute("INSERT INTO messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)",
+                                       (f"msg_task_{assistant_now}", session_id, "task", task_card_content, assistant_now))
+                        
+                        cursor.execute("INSERT INTO messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)",
+                                       (f"msg_assistant_{assistant_now}_text", session_id, "assistant", clean_response, assistant_now + 1))
+                        
+                        # Trigger system notification
+                        subprocess.run(["notify-send", "-i", "dialog-information", "KDE Assistant", f"Task Created: {task_title}"], capture_output=True)
+                    except Exception as e:
+                        cursor.execute("INSERT INTO messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)",
+                                       (f"msg_task_{assistant_now}_err", session_id, "error", f"Failed to create task: database error.", assistant_now))
+                        # Trigger fail system notification
+                        subprocess.run(["notify-send", "-i", "dialog-error", "KDE Assistant", "Failed to create task."], capture_output=True)
                                    
                 elif cmd_tag["type"] == "system":
                     command = cmd_tag["command"]

@@ -387,25 +387,43 @@ Item {
             // Save the memory to DB immediately — no confirmation needed
             var memId = Db.saveMemory(db, memContent, currentSessionId);
             loadMemoryList();
-            // Convert the assistant message to a memory card in the chat
-            chatMessageModel.setProperty(assistantIndex, "role", "memory");
-            chatMessageModel.setProperty(assistantIndex, "content", "");
-            chatMessageModel.setProperty(assistantIndex, "memoryContent", memContent);
-            chatMessageModel.setProperty(assistantIndex, "memoryId", memId);
-            chatPage.positionViewAtEnd();
-            // Persist the memory card in the DB so it survives reload
-            Db.saveMessage(db, currentSessionId, "memory", JSON.stringify({
-                "id": memId,
-                "content": memContent
-            }));
-            loadSessionList();
-            // Resume so the AI can naturally acknowledge ("Got it!" etc.)
-            var updatedMessages = buildMessageArray();
-            updatedMessages.push({
-                "role": "system",
-                "content": "Memory saved: \"" + memContent + "\". Continue the conversation naturally."
-            });
-            resumeStreaming(updatedMessages);
+            if (memId && memId !== "") {
+                // Success: notification and card rendering
+                var notifyCmd = "notify-send -i dialog-information 'KDE Assistant' " + TextHelpers.escapeShellArg("Memory Saved: " + memContent);
+                commandRunner.execute(notifyCmd);
+                // Convert the assistant message to a memory card in the chat
+                chatMessageModel.setProperty(assistantIndex, "role", "memory");
+                chatMessageModel.setProperty(assistantIndex, "content", "");
+                chatMessageModel.setProperty(assistantIndex, "memoryContent", memContent);
+                chatMessageModel.setProperty(assistantIndex, "memoryId", memId);
+                chatPage.positionViewAtEnd();
+                // Persist the memory card in the DB so it survives reload
+                Db.saveMessage(db, currentSessionId, "memory", JSON.stringify({
+                    "id": memId,
+                    "content": memContent
+                }));
+                loadSessionList();
+                // Resume so the AI can naturally acknowledge ("Got it!" etc.)
+                var updatedMessages = buildMessageArray();
+                updatedMessages.push({
+                    "role": "system",
+                    "content": "Memory saved: \"" + memContent + "\". Continue the conversation naturally."
+                });
+                resumeStreaming(updatedMessages);
+            } else {
+                // Fail notification and system error response
+                var notifyFailCmd = "notify-send -i dialog-error 'KDE Assistant' 'Failed to save memory.'";
+                commandRunner.execute(notifyFailCmd);
+                chatMessageModel.setProperty(assistantIndex, "role", "error");
+                chatMessageModel.setProperty(assistantIndex, "content", "Failed to save memory: Database write error.");
+                chatPage.positionViewAtEnd();
+                var updatedMessagesFail = buildMessageArray();
+                updatedMessagesFail.push({
+                    "role": "system",
+                    "content": "Failed to save memory: Database write error."
+                });
+                resumeStreaming(updatedMessagesFail);
+            }
         } else if (cmdTag.type === "task" || cmdTag.type === "add_task") {
             // ── Task creation from LLM ──────────────────────────
             var taskOpts = {
@@ -440,61 +458,53 @@ Item {
                 return ;
 
             var savedTaskId = Db.saveTask(db, taskTitle, taskOpts);
-            // Build confirmation details
-            var taskDetails = "**" + taskTitle + "**";
-            if (taskOpts.groupId) {
-                var grpName = "";
-                var currentGroups = Db.loadTaskGroups(db);
-                for (var gi = 0; gi < currentGroups.length; gi++) {
-                    if (currentGroups[gi].id === taskOpts.groupId) {
-                        grpName = currentGroups[gi].name;
-                        break;
-                    }
-                }
-                if (grpName)
-                    taskDetails += "\nGroup: " + grpName;
+            if (savedTaskId && savedTaskId !== "") {
+                // Success path
+                var notifyCmd = "notify-send -i dialog-information 'KDE Assistant' " + TextHelpers.escapeShellArg("Task Created: " + taskTitle);
+                commandRunner.execute(notifyCmd);
+                // Convert assistant message to task card
+                chatMessageModel.setProperty(assistantIndex, "role", "task");
+                chatMessageModel.setProperty(assistantIndex, "content", "");
+                chatMessageModel.setProperty(assistantIndex, "taskTitle", taskTitle);
+                chatMessageModel.setProperty(assistantIndex, "taskGroupId", taskOpts.groupId || "");
+                chatMessageModel.setProperty(assistantIndex, "taskPriority", taskOpts.priority || 0);
+                chatMessageModel.setProperty(assistantIndex, "taskDueDate", taskOpts.dueDate ? new Date(taskOpts.dueDate).toLocaleDateString() : "");
+                chatPage.positionViewAtEnd();
+                // Save task card in DB so it survives reload
+                Db.saveMessage(db, currentSessionId, "task", JSON.stringify({
+                    "taskId": savedTaskId,
+                    "title": taskTitle,
+                    "groupId": taskOpts.groupId || "",
+                    "priority": taskOpts.priority || 0,
+                    "dueDate": taskOpts.dueDate || ""
+                }));
+                loadSessionList();
+                reloadTaskList();
+                var lowerTaskTitle = taskTitle.trim().toLowerCase();
+                if (lowerTaskTitle && recentlyCreatedTaskTitles.indexOf(lowerTaskTitle) === -1)
+                    recentlyCreatedTaskTitles.push(lowerTaskTitle);
 
+                // Resume so LLM can acknowledge
+                var updatedMessages = buildMessageArray();
+                updatedMessages.push({
+                    "role": "system",
+                    "content": "Task created: \"" + taskTitle + "\". Do NOT output any more task tags. Continue the conversation naturally."
+                });
+                resumeStreaming(updatedMessages);
+            } else {
+                // Fail path
+                var notifyFailCmd = "notify-send -i dialog-error 'KDE Assistant' 'Failed to create task.'";
+                commandRunner.execute(notifyFailCmd);
+                chatMessageModel.setProperty(assistantIndex, "role", "error");
+                chatMessageModel.setProperty(assistantIndex, "content", "Failed to create task: Database write error.");
+                chatPage.positionViewAtEnd();
+                var updatedMessagesFail = buildMessageArray();
+                updatedMessagesFail.push({
+                    "role": "system",
+                    "content": "Failed to create task: Database write error."
+                });
+                resumeStreaming(updatedMessagesFail);
             }
-            if (taskOpts.priority && taskOpts.priority > 0) {
-                var pLabel = taskOpts.priority === 3 ? "High" : taskOpts.priority === 2 ? "Medium" : "Low";
-                taskDetails += "\nPriority: " + pLabel;
-            }
-            if (taskOpts.dueDate) {
-                var dd = new Date(taskOpts.dueDate);
-                taskDetails += "\nDue: " + dd.toLocaleDateString();
-            }
-            if (taskOpts.description)
-                taskDetails += "\n" + taskOpts.description;
-
-            // Convert assistant message to task card
-            chatMessageModel.setProperty(assistantIndex, "role", "task");
-            chatMessageModel.setProperty(assistantIndex, "content", "");
-            chatMessageModel.setProperty(assistantIndex, "taskTitle", taskTitle);
-            chatMessageModel.setProperty(assistantIndex, "taskGroupId", taskOpts.groupId || "");
-            chatMessageModel.setProperty(assistantIndex, "taskPriority", taskOpts.priority || 0);
-            chatMessageModel.setProperty(assistantIndex, "taskDueDate", taskOpts.dueDate ? new Date(taskOpts.dueDate).toLocaleDateString() : "");
-            chatPage.positionViewAtEnd();
-            // Save task card in DB so it survives reload
-            Db.saveMessage(db, currentSessionId, "task", JSON.stringify({
-                "taskId": savedTaskId,
-                "title": taskTitle,
-                "groupId": taskOpts.groupId || "",
-                "priority": taskOpts.priority || 0,
-                "dueDate": taskOpts.dueDate || ""
-            }));
-            loadSessionList();
-            reloadTaskList();
-            var lowerTaskTitle = taskTitle.trim().toLowerCase();
-            if (lowerTaskTitle && recentlyCreatedTaskTitles.indexOf(lowerTaskTitle) === -1)
-                recentlyCreatedTaskTitles.push(lowerTaskTitle);
-
-            // Resume so LLM can acknowledge
-            var updatedMessages = buildMessageArray();
-            updatedMessages.push({
-                "role": "system",
-                "content": "Task created: \"" + taskTitle + "\". Do NOT output any more task tags. Continue the conversation naturally."
-            });
-            resumeStreaming(updatedMessages);
         }
     }
 
