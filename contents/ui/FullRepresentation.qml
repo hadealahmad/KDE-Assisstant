@@ -50,6 +50,9 @@ Item {
     // ── Speech-to-Text State & Logic ─────────────────────────────
     property alias isRecording: sttManager.isRecording
     property alias sttErrorText: sttManager.sttErrorText
+    // ── Text-to-Speech State & Logic ─────────────────────────────
+    property alias isSpeaking: ttsManager.isSpeaking
+    property alias currentlySpokenText: ttsManager.currentlySpokenText
     // ── Command execution state ──────────────────────────────────
     property int activeAssistantIndex: -1
 
@@ -665,6 +668,7 @@ Item {
     }
 
     function stopStreamingAndSave() {
+        ttsManager.stopSpeaking();
         if (isStreaming) {
             Api.abortActiveRequest();
             isStreaming = false;
@@ -976,6 +980,12 @@ Item {
         }
     }
 
+    Components.TextToSpeechManager {
+        id: ttsManager
+
+        runner: commandRunner
+    }
+
     // ── Message list model ────────────────────────────────────
     ListModel {
         id: chatMessageModel
@@ -1033,6 +1043,12 @@ Item {
             keepOpen: root.keepOpen
             memoryCount: fullRepRoot.chatMemoryModel.count
             onSendMessage: fullRepRoot.sendMessage()
+            onSpeakRequested: function(text) {
+                ttsManager.speakText(text);
+            }
+            onStopSpeakRequested: {
+                ttsManager.stopSpeaking();
+            }
             onToggleRecording: fullRepRoot.toggleRecording()
             onStartNewSession: fullRepRoot.startNewSession()
             onCopyConversation: fullRepRoot.copyConversationToClipboard()

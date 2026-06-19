@@ -114,6 +114,8 @@ Kirigami.AbstractCard {
     signal viewTasksRequested()
     signal openFileRequested(string filePath)
     signal openAttachmentRequested(var attachment)
+    signal speakRequested(string text)
+    signal stopSpeakRequested()
 
     Layout.fillWidth: true
     showClickFeedback: false
@@ -124,6 +126,8 @@ Kirigami.AbstractCard {
     }
 
     Controls.ToolButton {
+        id: copyButton
+
         anchors.left: parent.left
         anchors.top: parent.top
         anchors.margins: Kirigami.Units.smallSpacing
@@ -138,6 +142,28 @@ Kirigami.AbstractCard {
             messageContent.deselect();
         }
         Controls.ToolTip.text: "Copy message"
+        Controls.ToolTip.delay: Kirigami.Units.toolTipDelay
+        Controls.ToolTip.visible: hovered
+    }
+
+    Controls.ToolButton {
+        id: speakButton
+
+        anchors.left: parent.left
+        anchors.top: copyButton.visible ? copyButton.bottom : parent.top
+        anchors.margins: Kirigami.Units.smallSpacing
+        icon.name: (fullRepRoot.isSpeaking && fullRepRoot.currentlySpokenText === root.cleanMessageText) ? "media-playback-stop" : "audio-volume-high"
+        display: Controls.AbstractButton.IconOnly
+        text: (fullRepRoot.isSpeaking && fullRepRoot.currentlySpokenText === root.cleanMessageText) ? "Stop Reading" : "Read Aloud"
+        visible: (cardHoverHandler.hovered || (fullRepRoot.isSpeaking && fullRepRoot.currentlySpokenText === root.cleanMessageText)) && root.cleanMessageText !== "" && !root.isUser && !root.isError && !root.isApproval && !root.isCommand && !root.isMemory && !root.isTask
+        flat: true
+        onClicked: {
+            if (fullRepRoot.isSpeaking && fullRepRoot.currentlySpokenText === root.cleanMessageText)
+                root.stopSpeakRequested();
+            else
+                root.speakRequested(root.cleanMessageText);
+        }
+        Controls.ToolTip.text: text
         Controls.ToolTip.delay: Kirigami.Units.toolTipDelay
         Controls.ToolTip.visible: hovered
     }

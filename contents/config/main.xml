@@ -74,5 +74,14 @@
         <entry name="sttLmsModel" type="String">
             <default>whisper-1</default>
         </entry>
+        <entry name="ttsBackend" type="String">
+            <default>disabled</default>
+        </entry>
+        <entry name="ttsPiperCliPath" type="String">
+            <default>piper</default>
+        </entry>
+        <entry name="ttsPiperModelPath" type="String">
+            <default></default>
+        </entry>
     </group>
 </kcfg>

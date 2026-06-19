@@ -55,6 +55,8 @@ ColumnLayout {
     signal deleteMemoryRequested(string memoryId, int index)
     signal openFileRequested(string filePath)
     signal openAttachmentRequested(var attachment)
+    signal speakRequested(string text)
+    signal stopSpeakRequested()
 
     function setInputText(text) {
         inputBar.text = text;
@@ -219,6 +221,12 @@ ColumnLayout {
                 }
                 onOpenAttachmentRequested: function(attachment) {
                     chatPageRoot.openAttachmentRequested(attachment);
+                }
+                onSpeakRequested: function(text) {
+                    chatPageRoot.speakRequested(text);
+                }
+                onStopSpeakRequested: {
+                    chatPageRoot.stopSpeakRequested();
                 }
             }
 
