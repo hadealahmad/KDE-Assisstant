@@ -40,6 +40,7 @@ Kirigami.AbstractCard {
     property string taskGroupId: ""
     property int taskPriority: 0
     property string taskDueDate: ""
+    property string toolOriginalText: ""
     property string attachmentsJson: ""
     readonly property var parsedAttachments: {
         if (!attachmentsJson || attachmentsJson === "")
@@ -147,14 +148,21 @@ Kirigami.AbstractCard {
         icon.name: "edit-copy-symbolic"
         display: Controls.AbstractButton.IconOnly
         text: "Copy"
-        visible: root.cleanMessageText !== ""
+        visible: root.cleanMessageText !== "" || (root.toolOriginalText !== "" && (root.isMemory || root.isTask))
         opacity: cardHoverHandler.hovered ? 1 : 0.4
         flat: true
         onClicked: {
             fullRepRoot.hideToolTip();
-            messageContent.selectAll();
-            messageContent.copy();
-            messageContent.deselect();
+            if (root.isMemory || root.isTask) {
+                fullRepRoot.clipboardHelper.text = root.toolOriginalText;
+                fullRepRoot.clipboardHelper.selectAll();
+                fullRepRoot.clipboardHelper.copy();
+                fullRepRoot.clipboardHelper.deselect();
+            } else {
+                messageContent.selectAll();
+                messageContent.copy();
+                messageContent.deselect();
+            }
         }
         onHoveredChanged: {
             if (hovered)
@@ -277,6 +285,9 @@ Kirigami.AbstractCard {
                 if (root.isTask)
                     return "✅ Task Created";
 
+                if (root.role === "system")
+                    return "System";
+
                 return "Assistant";
             }
             font.bold: true
@@ -302,6 +313,9 @@ Kirigami.AbstractCard {
 
                 if (root.isTask)
                     return Kirigami.Theme.highlightColor;
+
+                if (root.role === "system")
+                    return Kirigami.Theme.disabledTextColor;
 
                 return Kirigami.Theme.disabledTextColor;
             }

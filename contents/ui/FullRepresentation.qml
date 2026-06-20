@@ -154,15 +154,15 @@ Item {
     }
 
     function processSelectedFiles(fileUrls) {
-        function checkDone() {
-            filesProcessed++;
-        }
-
         if (!fileUrls || fileUrls.length === 0)
             return ;
 
         var filesToProcess = fileUrls.length;
         var filesProcessed = 0;
+
+        function checkDone() {
+            filesProcessed++;
+        }
         for (var i = 0; i < fileUrls.length; i++) {
             var filePath = fileUrls[i].toString();
             if (filePath.indexOf("file://") === 0)
@@ -314,10 +314,12 @@ Item {
                 "id": savedTaskId
             });
             if (i === 0 && assistantIndex >= 0 && assistantIndex < chatMessageModel.count) {
-                var preservedThinkingTask = TextHelpers.extractThinkingText(chatMessageModel.get(assistantIndex).content || "");
+                var rawOriginalBatch = chatMessageModel.get(assistantIndex).content || "";
+                chatMessageModel.setProperty(assistantIndex, "toolOriginalText", rawOriginalBatch);
+                var preservedThinkingBatch = TextHelpers.extractThinkingText(rawOriginalBatch);
                 chatMessageModel.setProperty(assistantIndex, "role", "task");
                 chatMessageModel.setProperty(assistantIndex, "content", "");
-                chatMessageModel.setProperty(assistantIndex, "thinkingText", preservedThinkingTask);
+                chatMessageModel.setProperty(assistantIndex, "thinkingText", preservedThinkingBatch);
                 chatMessageModel.setProperty(assistantIndex, "taskTitle", taskTitle);
                 chatMessageModel.setProperty(assistantIndex, "taskGroupId", taskOpts.groupId || "");
                 chatMessageModel.setProperty(assistantIndex, "taskPriority", taskOpts.priority || 0);
@@ -336,7 +338,8 @@ Item {
                 "title": taskTitle,
                 "groupId": taskOpts.groupId || "",
                 "priority": taskOpts.priority || 0,
-                "dueDate": taskOpts.dueDate || ""
+                "dueDate": taskOpts.dueDate || "",
+                "thinking": i === 0 ? (preservedThinkingBatch || "") : ""
             }));
         }
         chatPage.positionViewAtEnd();
@@ -357,7 +360,7 @@ Item {
             var updatedMessages = buildMessageArray();
             updatedMessages.push({
                 "role": "system",
-                "content": "Tasks created: " + summary + ". Do NOT output any more task tags. Continue the conversation naturally."
+                "content": "Tasks created: " + summary + ". Do NOT output any more task tags. The user's request has been fulfilled."
             });
             resumeStreaming(updatedMessages);
         }
@@ -448,11 +451,24 @@ Item {
             // Preserve thinking text before replacing content
             var currentContentSetting = chatMessageModel.get(assistantIndex).content || "";
             var preservedThinkingSetting = TextHelpers.extractThinkingText(currentContentSetting);
+            var rawOriginalSetting = chatMessageModel.get(assistantIndex).content || "";
+            chatMessageModel.setProperty(assistantIndex, "toolOriginalText", rawOriginalSetting);
             chatMessageModel.setProperty(assistantIndex, "role", "setting_approval");
             chatMessageModel.setProperty(assistantIndex, "content", cmdTag.command + "\n\n" + cmdTag.description);
             chatMessageModel.setProperty(assistantIndex, "thinkingText", preservedThinkingSetting);
             chatMessageModel.setProperty(assistantIndex, "approvalStatus", "pending");
             chatMessageModel.setProperty(assistantIndex, "approvalResult", "");
+            // Persist to DB immediately (matching opencode_approval behavior)
+            var settingDbContent = JSON.stringify({
+                "command": cmdTag.command,
+                "description": cmdTag.description,
+                "status": "pending",
+                "result": "",
+                "thinking": preservedThinkingSetting || ""
+            });
+            var settingId = Db.saveMessage(db, currentSessionId, "setting_approval", settingDbContent);
+            chatMessageModel.setProperty(assistantIndex, "messageId", settingId);
+            loadSessionList();
             chatPage.positionViewAtEnd();
         } else if (cmdTag.type === "opencode") {
             // Preserve thinking text before replacing content with JSON
@@ -493,8 +509,11 @@ Item {
                 // Success: notification and card rendering
                 var notifyCmd = "notify-send -i dialog-information 'KDE Assistant' " + TextHelpers.escapeShellArg("Memory Saved: " + memContent);
                 commandRunner.execute(notifyCmd);
+                // Store original text BEFORE converting to memory card
+                var rawOriginalMem = chatMessageModel.get(assistantIndex).content || "";
+                chatMessageModel.setProperty(assistantIndex, "toolOriginalText", rawOriginalMem);
                 // Convert the assistant message to a memory card in the chat
-                var preservedThinkingMem = TextHelpers.extractThinkingText(chatMessageModel.get(assistantIndex).content || "");
+                var preservedThinkingMem = TextHelpers.extractThinkingText(rawOriginalMem);
                 chatMessageModel.setProperty(assistantIndex, "role", "memory");
                 chatMessageModel.setProperty(assistantIndex, "content", "");
                 chatMessageModel.setProperty(assistantIndex, "thinkingText", preservedThinkingMem);
@@ -504,14 +523,15 @@ Item {
                 // Persist the memory card in the DB so it survives reload
                 Db.saveMessage(db, currentSessionId, "memory", JSON.stringify({
                     "id": memId,
-                    "content": memContent
+                    "content": memContent,
+                    "thinking": preservedThinkingMem || ""
                 }));
                 loadSessionList();
-                // Resume so the AI can naturally acknowledge ("Got it!" etc.)
+                // Resume so the AI can acknowledge
                 var updatedMessages = buildMessageArray();
                 updatedMessages.push({
                     "role": "system",
-                    "content": "Memory saved: \"" + memContent + "\". Continue the conversation naturally."
+                    "content": "Memory successfully saved: \"" + memContent + "\". The user's request has been fulfilled."
                 });
                 resumeStreaming(updatedMessages);
             } else {
@@ -566,6 +586,12 @@ Item {
                 // Success path
                 var notifyCmd = "notify-send -i dialog-information 'KDE Assistant' " + TextHelpers.escapeShellArg("Task Created: " + taskTitle);
                 commandRunner.execute(notifyCmd);
+                // Store original text BEFORE converting to task card
+                var rawOriginalTask = chatMessageModel.get(assistantIndex).content || "";
+                chatMessageModel.setProperty(assistantIndex, "toolOriginalText", rawOriginalTask);
+                // Preserve thinking before clearing content
+                var preservedThinkingTask = TextHelpers.extractThinkingText(rawOriginalTask);
+                chatMessageModel.setProperty(assistantIndex, "thinkingText", preservedThinkingTask);
                 // Convert assistant message to task card
                 chatMessageModel.setProperty(assistantIndex, "role", "task");
                 chatMessageModel.setProperty(assistantIndex, "content", "");
@@ -580,7 +606,8 @@ Item {
                     "title": taskTitle,
                     "groupId": taskOpts.groupId || "",
                     "priority": taskOpts.priority || 0,
-                    "dueDate": taskOpts.dueDate || ""
+                    "dueDate": taskOpts.dueDate || "",
+                    "thinking": preservedThinkingTask || ""
                 }));
                 loadSessionList();
                 reloadTaskList();
@@ -592,7 +619,7 @@ Item {
                 var updatedMessages = buildMessageArray();
                 updatedMessages.push({
                     "role": "system",
-                    "content": "Task created: \"" + taskTitle + "\". Do NOT output any more task tags. Continue the conversation naturally."
+                    "content": "Task created: \"" + taskTitle + "\". Do NOT output any more task tags. The user's request has been fulfilled."
                 });
                 resumeStreaming(updatedMessages);
             } else {
@@ -735,19 +762,18 @@ Item {
 
             chatMessageModel.setProperty(assistantIndex, "approvalStatus", statusStr);
             chatMessageModel.setProperty(assistantIndex, "approvalResult", outputText);
-            var dbText = "";
-            if (exitCode === 0) {
-                dbText = "✅ **Setting change executed successfully.**\n\nCommand: `" + command + "`\n\n**Output:**\n```\n" + (stdout ? stdout.trim() : "") + "\n```";
-                if (stderr && stderr.trim())
-                    dbText += "\n\n**Error Output:**\n```\n" + stderr.trim() + "\n```";
-
-            } else {
-                dbText = "❌ **Setting change failed (Exit code: " + exitCode + ").**\n\nCommand: `" + command + "`\n\n**Error Output:**\n```\n" + (stderr ? stderr.trim() : "") + "\n```";
-                if (stdout && stdout.trim())
-                    dbText += "\n\n**Output:**\n```\n" + stdout.trim() + "\n```";
-
+            // Update DB entry in-place instead of creating a new message
+            var settingMsgId = chatMessageModel.get(assistantIndex).messageId;
+            if (settingMsgId && settingMsgId !== "") {
+                var updatedSettingJson = JSON.stringify({
+                    "command": command,
+                    "description": description,
+                    "status": statusStr,
+                    "result": outputText,
+                    "thinking": ""
+                });
+                Db.updateMessageContent(db, settingMsgId, updatedSettingJson);
             }
-            Db.saveMessage(db, currentSessionId, "assistant", dbText);
             loadSessionList();
             var status = exitCode === 0 ? "Success" : "Failed";
             var updatedMessages = buildMessageArray();
@@ -762,8 +788,18 @@ Item {
 
     function declineSetting(description, assistantIndex) {
         chatMessageModel.setProperty(assistantIndex, "approvalStatus", "declined");
-        var text = "❌ Setting change declined by user.";
-        Db.saveMessage(db, currentSessionId, "assistant", text);
+        // Update DB entry in-place instead of creating a new message
+        var settingMsgId = chatMessageModel.get(assistantIndex).messageId;
+        if (settingMsgId && settingMsgId !== "") {
+            var updatedDeclineJson = JSON.stringify({
+                "command": chatMessageModel.get(assistantIndex).content.split("\n\n")[0] || "",
+                "description": description,
+                "status": "declined",
+                "result": "",
+                "thinking": ""
+            });
+            Db.updateMessageContent(db, settingMsgId, updatedDeclineJson);
+        }
         loadSessionList();
         var updatedMessages = buildMessageArray();
         updatedMessages.push({
@@ -800,7 +836,7 @@ Item {
         }
 
         // Build the opencode command
-        var innerCmd = "opencode run " + TextHelpers.escapeShellArg(instruction) + " --dangerously-skip-permissions";
+        var innerCmd = "opencode run " + TextHelpers.escapeShellArg(instruction);
         if (files && files.trim() !== "") {
             var list = files.split(",");
             for (var i = 0; i < list.length; i++) {
@@ -1076,6 +1112,14 @@ Item {
                     roleLabel = "### System Change Approval";
                 else if (role === "system_command")
                     roleLabel = "### System Command";
+                else if (role === "opencode_approval")
+                    roleLabel = "### OpenCode Coding Task";
+                else if (role === "memory")
+                    roleLabel = "### Memory Saved";
+                else if (role === "task")
+                    roleLabel = "### Task Created";
+                else if (role === "system")
+                    roleLabel = "### System";
                 else
                     roleLabel = "### Assistant";
                 markdown += roleLabel + "\n\n";
@@ -1100,6 +1144,44 @@ Item {
                         markdown += "**Execution Result (" + appStatus + "):**\n```\n" + appResult + "\n```\n\n";
                     else if (appStatus === "declined")
                         markdown += "*Declined by user.*\n\n";
+                } else if (role === "memory") {
+                    roleLabel = "### Memory Saved";
+                    var memCopyContent = m.memoryContent || "";
+                    if (memCopyContent)
+                        markdown += memCopyContent + "\n\n";
+                } else if (role === "task") {
+                    roleLabel = "### Task Created";
+                    var taskCopyTitle = m.taskTitle || "";
+                    if (taskCopyTitle) {
+                        markdown += "**" + taskCopyTitle + "**";
+                        if (m.taskPriority > 0) {
+                            var pLabel = m.taskPriority === 3 ? "High" : m.taskPriority === 2 ? "Medium" : "Low";
+                            markdown += " (Priority: " + pLabel + ")";
+                        }
+                        if (m.taskDueDate !== "")
+                            markdown += " — Due: " + m.taskDueDate;
+                        markdown += "\n\n";
+                    }
+                } else if (role === "opencode_approval") {
+                    roleLabel = "### OpenCode Coding Task";
+                    var ocInst = m.opencodeInstruction || "";
+                    var ocFiles = m.opencodeFiles || "";
+                    var ocModel = m.opencodeModel || "";
+                    var ocStatus = m.approvalStatus || "";
+                    var ocOutput = m.approvalResult || "";
+                    markdown += "Instruction: *" + ocInst + "*\n\n";
+                    if (ocFiles !== "")
+                        markdown += "Files: `" + ocFiles + "`\n\n";
+                    if (ocModel !== "")
+                        markdown += "Model: `" + ocModel + "`\n\n";
+                    if (ocStatus === "done" || ocStatus === "failed")
+                        markdown += "**Execution Result (" + ocStatus + "):**\n```\n" + ocOutput + "\n```\n\n";
+                    else if (ocStatus === "declined")
+                        markdown += "*Declined by user.*\n\n";
+                    else if (ocStatus === "running")
+                        markdown += "*Running...*\n\n";
+                    else if (ocStatus === "pending")
+                        markdown += "*Pending approval.*\n\n";
                 } else {
                     markdown += content + "\n\n";
                     // Append attachment summaries
@@ -1177,17 +1259,44 @@ Item {
                     content = msgs[i].content;
                 }
             }
+            var preservedThinkingFromDb = "";
             var isMemoryMsg = (role === "memory");
             var memContent = "";
             var memId = "";
+            var memToolOrigText = "";
             if (isMemoryMsg) {
                 try {
                     var memParsed = JSON.parse(content);
                     memId = memParsed.id || "";
                     memContent = memParsed.content || "";
+                    memToolOrigText = "[REMEMBER: " + memContent + "]";
+                    preservedThinkingFromDb = memParsed.thinking || "";
                     content = "";
                 } catch (e) {
                     memContent = content;
+                    memToolOrigText = "[REMEMBER: " + content + "]";
+                    content = "";
+                }
+            }
+            var isTaskMsg = (role === "task");
+            var taskTitleDb = "";
+            var taskGroupIdDb = "";
+            var taskPriorityDb = 0;
+            var taskDueDateDb = "";
+            var taskToolOrigText = "";
+            if (isTaskMsg) {
+                try {
+                    var taskParsed = JSON.parse(content);
+                    taskTitleDb = taskParsed.title || "";
+                    taskGroupIdDb = taskParsed.groupId || "";
+                    taskPriorityDb = taskParsed.priority || 0;
+                    taskDueDateDb = taskParsed.dueDate || "";
+                    taskToolOrigText = "[TASK: " + taskTitleDb + "]";
+                    preservedThinkingFromDb = taskParsed.thinking || "";
+                    content = "";
+                } catch (e) {
+                    taskTitleDb = content;
+                    taskToolOrigText = "[TASK: " + content + "]";
                     content = "";
                 }
             }
@@ -1197,7 +1306,6 @@ Item {
             var opencodeModel = "";
             var opencodeStatus = "pending";
             var opencodeOutput = "";
-            var preservedThinkingFromDb = "";
             if (isOpenCodeMsg) {
                 try {
                     var opParsed = JSON.parse(content);
@@ -1225,6 +1333,28 @@ Item {
                     content = "";
                 }
             }
+            var isSettingApprovalMsg = (role === "setting_approval");
+            var settingApprovalCommand = "";
+            var settingApprovalDescription = "";
+            var settingApprovalStatus = "pending";
+            var settingApprovalResult = "";
+            var settingToolOrigText = "";
+            if (isSettingApprovalMsg) {
+                try {
+                    var settingParsed = JSON.parse(content);
+                    settingApprovalCommand = settingParsed.command || "";
+                    settingApprovalDescription = settingParsed.description || "";
+                    settingApprovalStatus = settingParsed.status || "pending";
+                    settingApprovalResult = settingParsed.result || "";
+                    preservedThinkingFromDb = settingParsed.thinking || "";
+                    settingToolOrigText = "[SETTING: " + settingApprovalCommand + " description=\"" + settingApprovalDescription + "\"]";
+                    content = settingApprovalCommand + "\n\n" + settingApprovalDescription;
+                } catch (e) {
+                    settingApprovalCommand = content;
+                    settingToolOrigText = "[SETTING: " + content + "]";
+                    content = content;
+                }
+            }
             var msg = TextHelpers.createDefaultMessage(role, content);
             msg.messageId = msgs[i].id;
             msg.isError = false;
@@ -1235,11 +1365,18 @@ Item {
             msg.isMemory = isMemoryMsg;
             msg.memoryContent = memContent;
             msg.memoryId = memId;
+            msg.toolOriginalText = isMemoryMsg ? memToolOrigText : (isTaskMsg ? taskToolOrigText : (isSettingApprovalMsg ? settingToolOrigText : ""));
+            if (isTaskMsg) {
+                msg.taskTitle = taskTitleDb;
+                msg.taskGroupId = taskGroupIdDb;
+                msg.taskPriority = taskPriorityDb;
+                msg.taskDueDate = taskDueDateDb ? new Date(parseInt(taskDueDateDb)).toLocaleDateString() : "";
+            }
             msg.opencodeInstruction = opencodeInstruction;
             msg.opencodeFiles = opencodeFiles;
             msg.opencodeModel = opencodeModel;
-            msg.approvalStatus = opencodeStatus;
-            msg.approvalResult = opencodeOutput;
+            msg.approvalStatus = isSettingApprovalMsg ? settingApprovalStatus : opencodeStatus;
+            msg.approvalResult = isSettingApprovalMsg ? settingApprovalResult : opencodeOutput;
             msg.thinkingText = preservedThinkingFromDb;
             chatMessageModel.append(msg);
         }
@@ -1419,7 +1556,7 @@ Item {
                     baseDir = baseDir.substring(0, baseDir.length - 1);
 
                 var staticDir = baseDir + "/web";
-                var startCmd = "python3 " + TextHelpers.escapeShellArg(baseDir + "/../code/webserver_daemon.py") + " " + "--port " + port + " " + "--token " + TextHelpers.escapeShellArg(token) + " " + "--api-url " + TextHelpers.escapeShellArg(apiAddr) + " " + "--api-key " + TextHelpers.escapeShellArg(apiKeyVal) + " " + "--model " + TextHelpers.escapeShellArg(modelVal) + " " + "--system-prompt " + TextHelpers.escapeShellArg(sysPromptVal) + " " + "--static-dir " + TextHelpers.escapeShellArg(staticDir) + " " + "--search-enabled " + (searchEnabledVal ? "true" : "false") + " " + "--prayer-latitude " + TextHelpers.escapeShellArg(prayerLatVal.toString()) + " " + "--prayer-longitude " + TextHelpers.escapeShellArg(prayerLngVal.toString()) + " " + "--prayer-method " + TextHelpers.escapeShellArg(prayerMethodVal.toString()) + " " + "--user-notes " + TextHelpers.escapeShellArg(userNotesVal);
+                var startCmd = "python3 " + TextHelpers.escapeShellArg(baseDir + "/../code/webserver_daemon.py") + " " + "--port " + port + " " + "--bind 127.0.0.1 " + "--token " + TextHelpers.escapeShellArg(token) + " " + "--api-url " + TextHelpers.escapeShellArg(apiAddr) + " " + "--api-key " + TextHelpers.escapeShellArg(apiKeyVal) + " " + "--model " + TextHelpers.escapeShellArg(modelVal) + " " + "--system-prompt " + TextHelpers.escapeShellArg(sysPromptVal) + " " + "--static-dir " + TextHelpers.escapeShellArg(staticDir) + " " + "--search-enabled " + (searchEnabledVal ? "true" : "false") + " " + "--prayer-latitude " + TextHelpers.escapeShellArg(prayerLatVal.toString()) + " " + "--prayer-longitude " + TextHelpers.escapeShellArg(prayerLngVal.toString()) + " " + "--prayer-method " + TextHelpers.escapeShellArg(prayerMethodVal.toString()) + " " + "--user-notes " + TextHelpers.escapeShellArg(userNotesVal);
                 console.log("WEBSERVER_QML: Launching Webserver command: " + startCmd);
                 activeWebserverCommand = startCmd;
                 commandRunner.execute(startCmd);
@@ -1427,7 +1564,7 @@ Item {
         });
     }
 
-    onWindowChanged: {
+    onWindowChanged: function(window) {
         if (window && _originalFlags === 0)
             _originalFlags = window.flags;
 
@@ -1571,7 +1708,7 @@ Item {
             apiUrl: Plasmoid.configuration.apiUrl || ""
             sttBackend: Plasmoid.configuration.sttBackend || "disabled"
             keepOpen: root.keepOpen
-            memoryCount: fullRepRoot.chatMemoryModel.count
+            memoryCount: fullRepRoot.chatMemoryModel ? fullRepRoot.chatMemoryModel.count : 0
             webserverEnabled: Plasmoid.configuration.webserverEnabled || false
             webserverPort: (Plasmoid.configuration.webserverPort || 8080).toString()
             webserverToken: Plasmoid.configuration.webserverToken || ""

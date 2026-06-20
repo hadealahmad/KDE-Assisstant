@@ -66,8 +66,9 @@ KDE Assistant organizes its configurations and offline caches in the following d
 - `contents/ui/web/`: HTML, CSS, and JS files for the mobile web access.
 
 ### Database Offline Storage
-`~/.local/share/<host-process>/QML/OfflineStorage/Databases/`
-- Contains `0a6708d6d2377187561fdb538e34d70d.sqlite` (local sqlite logs) and its `.ini` descriptor metadata sheet.
+`~/.local/share/kdeassistant/chat.db`
+- Primary database file used by both the plasmoid and webserver daemon.
+- Legacy Qt Offline Storage databases at `~/.local/share/<host-process>/QML/OfflineStorage/Databases/` are automatically migrated on first run.
 
 ### Downloaded Piper TTS Voice Caches
 `~/.local/share/kdeassistant/tts/`

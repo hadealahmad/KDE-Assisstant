@@ -767,7 +767,7 @@ function appendMessageBubble(msg) {
         }
 
         // Build command display string
-        let displayCmd = `opencode run "${escapeHtml(opencodeInstruction)}" --dangerously-skip-permissions`;
+        let displayCmd = `opencode run "${escapeHtml(opencodeInstruction)}"`;
         if (opencodeFiles) {
             opencodeFiles.split(',').forEach(f => {
                 f = f.trim();
@@ -848,7 +848,7 @@ window.updateOpenCodeCommandPreview = function(selectEl, instruction, files) {
     const card = selectEl.closest('.card-wrapper');
     const display = card.querySelector('.command-code-display');
     const model = selectEl.value;
-    let cmd = `opencode run "${instruction}" --dangerously-skip-permissions`;
+    let cmd = `opencode run "${instruction}"`;
     if (files) {
         files.split(',').forEach(f => {
             f = f.trim();

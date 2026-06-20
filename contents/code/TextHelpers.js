@@ -189,6 +189,7 @@ function createDefaultMessage(role, content) {
         opencodeInstruction: "",
         opencodeFiles: "",
         opencodeModel: "",
-        thinkingText: ""
+        thinkingText: "",
+        toolOriginalText: ""
     };
 }

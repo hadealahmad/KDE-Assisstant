@@ -95,7 +95,27 @@ function buildMessageArray(messageModel, AttachmentHelpers) {
             var content = m.content;
 
             if (role === "setting_approval") {
-                role = "assistant";
+                var settCmd = m.content.split("\n\n")[0] || "";
+                var settDesc = m.content.split("\n\n")[1] || "";
+                var settStatus = m.approvalStatus || "";
+                var settResult = m.approvalResult || "";
+                var settTag = "[SETTING: " + settCmd + " description=\"" + settDesc + "\"]";
+                arr.push({
+                    role: "assistant",
+                    content: settTag
+                });
+                if (settStatus === "done" || settStatus === "failed") {
+                    arr.push({
+                        role: "system",
+                        content: "Setting executed (" + settStatus + "). Command: `" + settCmd + "`. Description: " + settDesc + ".\n\nOutput:\n" + settResult
+                    });
+                } else if (settStatus === "declined") {
+                    arr.push({
+                        role: "system",
+                        content: "Setting change declined by user. Description: \"" + settDesc + "\"."
+                    });
+                }
+                continue;
             }
 
             if (role === "system_command") {
@@ -142,7 +162,45 @@ function buildMessageArray(messageModel, AttachmentHelpers) {
                     });
                 }
             } else if (role === "memory") {
-                // Skip memory cards from API context (they're in the system prompt already)
+                var memOrigText = m.toolOriginalText || "";
+                if (memOrigText) {
+                    var cleanMemText = memOrigText
+                        .replace(/<thinking>[\s\S]*?<\/thinking>/gi, "")
+                        .replace(/\[remember:\s*[\s\S]*?\s*\]/gi, "")
+                        .trim();
+                    if (cleanMemText) {
+                        arr.push({
+                            role: "assistant",
+                            content: cleanMemText
+                        });
+                    }
+                    var memContentVal = m.memoryContent || "";
+                    arr.push({
+                        role: "system",
+                        content: "Memory successfully saved: \"" + memContentVal + "\". The user's request has been fulfilled."
+                    });
+                }
+                continue;
+            } else if (role === "task") {
+                var taskOrigText = m.toolOriginalText || "";
+                if (taskOrigText) {
+                    var cleanTaskText = taskOrigText
+                        .replace(/<thinking>[\s\S]*?<\/thinking>/gi, "")
+                        .replace(/\[add_task:\s*[^\]]*\]/gi, "")
+                        .replace(/\[task:\s*[^\]]*\]/gi, "")
+                        .trim();
+                    if (cleanTaskText) {
+                        arr.push({
+                            role: "assistant",
+                            content: cleanTaskText
+                        });
+                    }
+                    var taskTitleVal = m.taskTitle || "";
+                    arr.push({
+                        role: "system",
+                        content: "Task successfully created: \"" + taskTitleVal + "\". Do NOT output any more task tags. The user's request has been fulfilled."
+                    });
+                }
                 continue;
             } else {
                 // Handle attachments

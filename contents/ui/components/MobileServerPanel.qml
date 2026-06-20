@@ -42,7 +42,7 @@ Rectangle {
         color: Kirigami.Theme.backgroundColor
         border.color: Kirigami.Theme.disabledTextColor
         border.width: 1
-        radius: Kirigami.Units.borderRadius * 2
+        radius: Kirigami.Units.smallSpacing * 2
 
         // Prevent clicks inside the card from closing it
         MouseArea {
@@ -142,7 +142,7 @@ Rectangle {
                     width: 160
                     height: 160
                     color: "white" // QR code must be on white background for scanability
-                    radius: Kirigami.Units.borderRadius
+                    radius: Kirigami.Units.smallSpacing
                     border.color: "#dddddd"
                     border.width: 1
 
@@ -246,7 +246,7 @@ Rectangle {
 
                     background: Rectangle {
                         color: Kirigami.Theme.alternateBackgroundColor
-                        radius: Kirigami.Units.borderRadius
+                        radius: Kirigami.Units.smallSpacing
                         border.color: Kirigami.Theme.disabledTextColor
                         border.width: 1
                     }

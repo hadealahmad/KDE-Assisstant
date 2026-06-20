@@ -93,7 +93,7 @@ Rectangle {
         color: Kirigami.Theme.backgroundColor
         border.color: Kirigami.Theme.disabledTextColor
         border.width: 1
-        radius: Kirigami.Units.borderRadius
+        radius: Kirigami.Units.smallSpacing
 
         ColumnLayout {
             id: dialogContent

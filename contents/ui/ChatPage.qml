@@ -195,6 +195,7 @@ Item {
                     taskGroupId: delegateRoot.modelData.taskGroupId ?? ""
                     taskPriority: delegateRoot.modelData.taskPriority ?? 0
                     taskDueDate: delegateRoot.modelData.taskDueDate ?? ""
+                    toolOriginalText: delegateRoot.modelData.toolOriginalText ?? ""
                     opencodeInstruction: delegateRoot.modelData.opencodeInstruction ?? ""
                     opencodeFiles: delegateRoot.modelData.opencodeFiles ?? ""
                     opencodeModel: delegateRoot.modelData.opencodeModel ?? ""
@@ -306,7 +307,7 @@ Item {
 
     // Drag-and-drop overlay on chat area
     DropArea {
-        anchors.fill: chatList
+        anchors.fill: parent
         keys: ["text/uri-list"]
         onEntered: function(drag) {
             dropOverlay.visible = true;

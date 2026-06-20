@@ -218,7 +218,7 @@ ColumnLayout {
             text: {
                 // Ensure dynamic update when ComboBox input changes
                 var dummy = (root.approvalStatus === "pending" || root.approvalStatus === "") ? (modelComboBox.currentText + modelComboBox.editText) : "";
-                var cmd = "opencode run \"" + root.opencodeInstruction + "\" --dangerously-skip-permissions";
+                var cmd = "opencode run \"" + root.opencodeInstruction + "\"";
                 if (root.opencodeFiles !== "") {
                     var list = root.opencodeFiles.split(",");
                     for (var i = 0; i < list.length; i++) {

@@ -15,7 +15,7 @@ The components communicate via a local database, direct process management, and 
 graph TD
     subgraph "KDE Host (plasmashell / plasmawindowed)"
         Plasmoid["Plasmoid Widget (QML/JS)"]
-        DB["SQLite Database (0a6708d6d2377187561fdb538e34d70d.sqlite)"]
+        DB["SQLite Database (~/.local/share/kdeassistant/chat.db)"]
         CmdRunner["CommandRunner (QML)"]
     end
 
@@ -37,6 +37,44 @@ graph TD
     Daemon -->|"notify-send (OS Notifications)"| HostOS["KDE Desktop Notification Server"]
     Plasmoid -->|"notify-send"| HostOS
 ```
+
+---
+
+## 7. Dependencies & Deprecated APIs
+
+### plasma5support.DataSource (Shell Command Execution)
+
+KDE Assistant uses `org.kde.plasma.plasma5support.DataSource` with `engine: "executable"` to run shell commands from QML. This is used in `CommandRunner.qml` and is the foundation for all system integrations: shell execution, STT recording, TTS playback, file operations, OpenCode agent, and notifications.
+
+**Why this exists:**
+- In Plasma 5, shell commands were executed via `org.kde.plasma.core.DataSource` with the `executable` data engine. When KDE Frameworks 6 removed `DataEngines`, the code was moved to the `plasma5support` compatibility shim.
+- There is **no native QProcess API available directly from QML**. `DataSource` with `engine: "executable"` is the only way to execute shell commands in a pure QML Plasma 6 plasmoid.
+
+**Is it deprecated?**
+- KDE's documentation describes `plasma5support` as deprecated ("will hopefully be removed in KF6"). However, as of 2026 **no replacement API exists** for pure QML plasmoids.
+- KDE Discuss threads (2024-2025) confirm there is no official alternative. The only option is a C++ plugin using `QProcess`, but C++ plugins **cannot be distributed via KDE Store's "Get New" dialog** — they require compilation and system-level installation.
+
+**Status:** Safe to use in production for Plasma 6. The `plasma5support` library is shipped and maintained by KDE as part of Plasma 6. If KDE provides a replacement API in a future KF6.x release, migrate at that point.
+
+**Relevant links:**
+- https://develop.kde.org/docs/plasma/widget/porting_kf6/
+- https://mail.kde.org/pipermail/kde-devel/2024-February/002460.html
+- https://github.com/KDE/plasma5support
+
+### Other Dependencies
+
+| Dependency | Type | Purpose |
+|---|---|---|
+| Qt 6 / QML | Runtime | UI framework (provided by Plasma) |
+| Kirigami | Runtime | KDE-specific QML components (provided by Plasma) |
+| Python 3 | Runtime | Webserver daemon (standard library only, no pip packages) |
+| SQLite | Runtime | Persistent storage (via QML LocalStorage + Python sqlite3) |
+| ripgrep / grep | Optional | Local code search |
+| curl | Optional | DuckDuckGo web search fallback |
+| arecord | Optional | Audio capture for speech-to-text |
+| whisper-cli | Optional | Local speech-to-text |
+| spd-say / piper | Optional | Text-to-speech |
+| OpenCode CLI | Optional | Autonomous coding agent |
 
 ---
 
@@ -67,9 +105,9 @@ The OpenCode feature enables the AI to propose and execute code changes autonomo
 
 The backend daemon is implemented in `contents/code/webserver_daemon.py`. It is a zero-dependency script designed to run natively on any Linux distribution with standard Python 3 libraries.
 
-- **Process Lifecycle:** Started and killed dynamically by [FullRepresentation.qml](file:///run/media/hadi/SSD2/Coding/KDE%20Assisstant/contents/ui/FullRepresentation.qml) when mobile web access is toggled or when Plasma starts/stops.
-- **Parent Process Tree Detection:** The daemon walks the Linux process tree to discover the exact host process PID (e.g. `plasmashell`, `plasmawindowed`, or `plasmoidviewer`) that spawned it. This allows it to automatically locate the exact active Offline Storage databases directory for that specific instance.
-- **SQLite Lock Avoidance:** Uses a `30.0` second SQL connection timeout to prevent conflicts during concurrent database write operations between the Plasmoid and Web UI.
+- **Process Lifecycle:** Started and killed dynamically by [FullRepresentation.qml](file:///run/media/hadi/SSD2/Coding/KDE%20Assisstant/contents/ui/FullRepresentation.qml) when mobile web access is toggled or when Plasma starts/stops. Writes a PID file to `/tmp/kdeassistant_webserver.pid` and detects stale instances on startup.
+- **Database Location:** Uses a fixed primary path at `~/.local/share/kdeassistant/chat.db`. Falls back to walking the Linux process tree (`/proc/<pid>/status`) to locate legacy Qt Offline Storage databases if the primary path doesn't exist.
+- **SQLite Lock Avoidance:** Uses WAL journal mode, `busy_timeout=5000`, and retry logic with exponential backoff to prevent conflicts during concurrent database write operations between the Plasmoid and Web UI.
 - **REST Endpoints:**
   - `GET /api/sessions`: Returns recent chat history logs.
   - `GET /api/messages?session_id=...`: Fetches structured chat messages.

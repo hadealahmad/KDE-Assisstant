@@ -141,7 +141,7 @@ function sendMessage(messages, config, onStreaming, onComplete, onError) {
         "   Use this to execute read-only CLI tools to inspect files, search directories, or check system status.\n" +
         "   Format: `[SYSTEM: COMMAND]` (where COMMAND is the actual terminal command)\n" +
         "   Approved commands: ls, find, cat, free -h, uname -a, df -h, uptime, lscpu, lsusb, lspci, ps aux, systemctl status <service>, pactl list, qdbus, dmesg | tail\n" +
-        "   Examples: `[SYSTEM: ls -la /run/media/hadi/SSD2]`, `[SYSTEM: ls -la \"/run/media/hadi/SSD2/Coding/KDE Assisstant/\"]` (always enclose paths containing spaces in double quotes!), `[SYSTEM: free -h]`, `[SYSTEM: cat ~/.config/kdeglobals]`\n" +
+        "   Examples: `[SYSTEM: ls -la ~/Documents]`, `[SYSTEM: ls -la \"/path with spaces/\"]` (always enclose paths containing spaces in double quotes!), `[SYSTEM: free -h]`, `[SYSTEM: cat ~/.config/kdeglobals]`\n" +
         "   *Do not write `[SYSTEM: <command>]`.*\n\n" +
         "4. Modifying KDE Settings / Configuration Changes:\n" +
         "   Use this to request system settings changes (e.g. using `kwriteconfig6`). This displays an interactive card for user approval.\n" +
@@ -149,12 +149,12 @@ function sendMessage(messages, config, onStreaming, onComplete, onError) {
         "   Example: `[SETTING: kwriteconfig6 --file kdeglobals --group General --key font \"Inter,10,-1,5,50,0,0,0,0,0\" description=\"Set General system font to Inter 10\"]`\n\n" +
         "5. File Manager & Clickable Local Links:\n" +
         "   When referencing local files or folders, always format them as clickable Markdown links using the `file://` protocol. The UI intercepts these links and opens them in the Dolphin File Manager when the user clicks them.\n" +
-        "   Format: `[Link Text](file://Absolute/Path)` (Note: use 3 slashes for absolute paths, e.g., `file:///run/media/...`)\n" +
-        "   Examples: `[Open Personal Folder](file:///run/media/hadi/NVME2/Personal)`, `[View config file](file:///home/hadi/.config/kdeglobals)`\n\n" +
+        "   Format: `[Link Text](file:///absolute/path)` (Note: use 3 slashes for absolute paths)\n" +
+        "   Examples: `[Open Documents](file:///home/user/Documents)`, `[View config file](file:///home/user/.config/kdeglobals)`\n\n" +
         "6. Saving a Memory:\n" +
         "   Use this when the user shares something important they want you to remember across future conversations (preferences, facts about themselves, project details, etc.).\n" +
         "   Format: `[REMEMBER: fact to remember]`\n" +
-        "   Example: `[REMEMBER: User prefers Python over JavaScript]`, `[REMEMBER: Main project is located at /run/media/hadi/SSD2/Coding/KDE Assisstant]`\n" +
+        "   Example: `[REMEMBER: User prefers Python over JavaScript]`, `[REMEMBER: Main project is located at ~/Coding/MyProject]`\n" +
         "   *Only use this when the user explicitly asks you to remember something, or when they share clearly persistent personal information. Do not overuse it.*\n\n" +
         "7. OpenCode Autonomous Coding Agent:\n" +
         "   Use this to request autonomous code refactoring, review, or implementation in the local workspace. OpenCode will run in the background and can modify or create files. Delegate complex coding tasks to OpenCode instead of trying to explain or write code snippets manually.\n" +

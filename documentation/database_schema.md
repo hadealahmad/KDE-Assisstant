@@ -1,21 +1,27 @@
 # Database Schema & Offline Storage
 
-KDE Assistant stores chat history, task lists, and memories inside a local SQLite database file using Qt's `LocalStorage` API.
+KDE Assistant stores chat history, task lists, and memories inside a local SQLite database file.
 
 ---
 
-## 1. Database Location & Host Resolution
+## 1. Database Location
 
-Qt Offline Storage automatically hashes the database name `KDEAssistant` into a unique identifier file:
-`0a6708d6d2377187561fdb538e34d70d.sqlite`
+The primary database is stored at:
+```
+~/.local/share/kdeassistant/chat.db
+```
 
-The path to this database file depends on the host shell process running the widget:
-- **Plasma Shell:** `~/.local/share/plasmashell/QML/OfflineStorage/Databases/`
-- **Plasma Windowed:** `~/.local/share/plasmawindowed/QML/OfflineStorage/Databases/`
-- **Plasmoid Viewer:** `~/.local/share/plasmoidviewer/QML/OfflineStorage/Databases/`
+This is a fixed, well-known path that both the plasmoid and webserver daemon can locate without process tree detection.
+
+### Legacy QML Storage (Automatic Migration)
+On first run, the daemon detects if a legacy Qt Offline Storage database exists at:
+```
+~/.local/share/<host-process>/QML/OfflineStorage/Databases/0a6708d6d2377187561fdb538e34d70d.sqlite
+```
+If found, it is automatically copied to the primary path. The plasmoid continues using Qt LocalStorage (which writes to the QML hash path), while the daemon reads/writes the primary path. Both point to the same data after migration.
 
 ### Webserver Daemon Host Matcher
-On startup, `webserver_daemon.py` walks its parent process tree (`/proc/<pid>/status`) to identify if it was started by `plasmoidviewer`, `plasmawindowed`, or `plasmashell`, and connects to that process's exact SQLite database file. This ensures perfect sync.
+On startup, `webserver_daemon.py` walks its parent process tree (`/proc/<pid>/status`) as a fallback to locate legacy databases if the primary path doesn't exist yet. This ensures backward compatibility during the transition.
 
 ---
 
@@ -83,7 +89,15 @@ erDiagram
         integer sort_order
         integer created_at
     }
+
+    SCHEMA_VERSION {
+        integer version PK
+    }
 ```
+
+### Table: `schema_version`
+Tracks database schema version for automatic migrations.
+- `version` (INTEGER PRIMARY KEY): Current schema version number. Starts at `2`.
 
 ### Table: `sessions`
 Tracks active chat histories.
