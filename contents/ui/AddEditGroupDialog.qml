@@ -44,9 +44,17 @@ Rectangle {
         saveRequested(n);
     }
 
+    function _cancel() {
+        visible = false;
+        cancelRequested();
+    }
+
+    // ESC cancels; outside-click does NOT close (no silent draft discard).
+    Keys.onEscapePressed: root._cancel()
+
     MouseArea {
         anchors.fill: parent
-        onClicked: { root.visible = false; root.cancelRequested(); }
+        onClicked: {}
     }
 
     Rectangle {
@@ -87,7 +95,7 @@ Rectangle {
 
                 PlasmaComponents.Button {
                     text: "Cancel"
-                    onClicked: { root.visible = false; root.cancelRequested(); }
+                    onClicked: root._cancel()
                 }
 
                 PlasmaComponents.Button {

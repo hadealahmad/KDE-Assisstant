@@ -60,6 +60,15 @@ When the LLM triggers a tool tag, both the desktop client and mobile daemon perf
 2. **PC Desktop Alert:** Succeeded operations call `subprocess.run(["notify-send", ...])` to display success badges on the host PC's desktop.
 3. **Error Logging:** Failed operations log a message card with `role="error"` in the SQLite `messages` table, making the error visible to the mobile browser on reload.
 
+### Destructive Actions & Confirmation Overlays (QML)
+To safeguard user data against accidental clicks, all destructive actions on the desktop client are gated by a custom modal overlay (`ConfirmOverlay.qml`):
+- **Gated Actions:**
+  - **Conversations:** Deleting a chat history thread (`HistoryPage.qml`).
+  - **Memories:** Forgetting individual memories or clearing all memories (`MemoriesPage.qml`).
+  - **Tasks & Groups:** Deleting individual tasks or task groups (`TasksPage.qml`).
+- **Safety Prompts:** Each overlay presents a clear title, a description showing the name of the targeted item (and explaining cascade details, like task groups where tasks are preserved as ungrouped), and a Cancel/Confirm button layout.
+- **Keyboard Navigation:** Overlays capture the Escape key to cancel and dismiss the safety prompt automatically without triggering the destructive action.
+
 ---
 
 ## 3. Web & Local Search Providers

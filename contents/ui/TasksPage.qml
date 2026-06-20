@@ -11,9 +11,11 @@ import org.kde.plasma.components as PlasmaComponents
 import org.kde.kirigami as Kirigami
 
 import "../code/Database.js" as Db
+import "components" as Components
 
 Item {
     id: tasksPageRoot
+    focus: true
 
     // ── External references ────────────────────────────────────
     property var db: null
@@ -74,6 +76,22 @@ Item {
     }
 
     Component.onCompleted: reload()
+
+    Controls.TextField {
+        id: focusHelper
+        visible: true
+        x: -100
+        y: -100
+        width: 10
+        height: 10
+        opacity: 0
+        activeFocusOnPress: false
+        readOnly: true
+    }
+
+    function forceActiveFocus() {
+        focusHelper.forceActiveFocus();
+    }
 
     // ── Main content ───────────────────────────────────────────
     ColumnLayout {
@@ -208,24 +226,38 @@ Item {
                                 }
 
                                 PlasmaComponents.ToolButton {
+                                    id: renameGroupButton
                                     icon.name: "document-edit"
                                     visible: modelData.id !== ""
                                     onClicked: {
+                                        fullRepRoot.hideToolTip();
                                         groupDialog.editingId = modelData.id;
                                         groupDialog.openEdit(modelData.name);
                                     }
-                                    Controls.ToolTip.text: "Rename Group"
-                                    Controls.ToolTip.delay: Kirigami.Units.toolTipDelay
-                                    Controls.ToolTip.visible: hovered
+                                    onHoveredChanged: {
+                                        if (hovered) {
+                                            fullRepRoot.showToolTip(renameGroupButton, "Rename Group");
+                                        } else {
+                                            fullRepRoot.hideToolTip();
+                                        }
+                                    }
                                 }
 
                                 PlasmaComponents.ToolButton {
+                                    id: deleteGroupButton
                                     icon.name: "edit-delete"
                                     visible: modelData.id !== ""
-                                    onClicked: { Db.deleteTaskGroup(db, modelData.id); tasksPageRoot.reload(); }
-                                    Controls.ToolTip.text: "Delete Group"
-                                    Controls.ToolTip.delay: Kirigami.Units.toolTipDelay
-                                    Controls.ToolTip.visible: hovered
+                                    onClicked: {
+                                        fullRepRoot.hideToolTip();
+                                        deleteGroupConfirm.open({"id": modelData.id, "name": modelData.name});
+                                    }
+                                    onHoveredChanged: {
+                                        if (hovered) {
+                                            fullRepRoot.showToolTip(deleteGroupButton, "Delete Group");
+                                        } else {
+                                            fullRepRoot.hideToolTip();
+                                        }
+                                    }
                                 }
                             }
 
@@ -264,7 +296,7 @@ Item {
                                     }
                                 }
                                 onEditRequested: taskDialog.openEdit(tasksPageRoot._findTask(taskId))
-                                onDeleteRequested: { Db.deleteTask(db, taskId); tasksPageRoot.reload(); }
+                                onDeleteRequested: deleteTaskConfirm.open({"id": taskId})
                                 onTaskChanged: tasksPageRoot.reload()
                             }
                         }
@@ -317,6 +349,37 @@ Item {
             }
             editingId = "";
             reload();
+        }
+    }
+
+    // ── Delete task confirmation ─────────────────────────────
+    Components.ConfirmOverlay {
+        id: deleteTaskConfirm
+
+        title: "Delete this task?"
+        message: "The task and any subtasks will be permanently deleted."
+        confirmText: "Delete"
+        confirmIcon: "edit-delete"
+        destructive: true
+        onConfirmed: function(ctx) {
+            Db.deleteTask(db, ctx.id);
+            tasksPageRoot.reload();
+        }
+    }
+
+    // ── Delete group confirmation ────────────────────────────
+    // State the cascade behaviour explicitly so users know tasks aren't lost.
+    Components.ConfirmOverlay {
+        id: deleteGroupConfirm
+
+        title: "Delete group?"
+        message: "\"" + (deleteGroupConfirm._context ? deleteGroupConfirm._context.name : "") + "\" will be removed. Its tasks become Ungrouped (not deleted)."
+        confirmText: "Delete Group"
+        confirmIcon: "edit-delete"
+        destructive: true
+        onConfirmed: function(ctx) {
+            Db.deleteTaskGroup(db, ctx.id);
+            tasksPageRoot.reload();
         }
     }
 }

@@ -1,6 +1,10 @@
 /*
  * KDE Assistant — ConfigGeneral.qml
  * Following official KDE Plasma widget config pattern
+ *
+ * Settings are organized into 6 collapsible groups so the page
+ * doesn't overwhelm users with 11 flat sections at once.
+ * AI Model and Memory are expanded by default; the rest are collapsed.
  */
 
 import "../code/ApiClient.js" as Api
@@ -64,8 +68,6 @@ QQC2.ScrollView {
         "jsonUrl": ""
     }]
     // ── Provider preset tables ─────────────────────────────────
-    // Fix #11: renamed "google" → "gemini" to avoid collision with the
-    //          search provider ID also named "google"
     property var _providerIds: ["openrouter", "openai", "gemini", "lmstudio", "ollama", "llamacpp", "custom"]
     property var _providerUrls: ["https://openrouter.ai/api/v1", "https://api.openai.com/v1", "https://generativelanguage.googleapis.com/v1beta/openai", "http://localhost:1234/v1", "http://localhost:11434/v1", "http://localhost:8080/v1", ""]
     property var _providerNeedsKey: [true, true, true, false, false, false, false]
@@ -75,21 +77,15 @@ QQC2.ScrollView {
     // ── API URL state ──────────────────────────────────────────
     property string _currentApiUrl: plasmoid.configuration.apiUrl || "http://localhost:11434/v1"
     // ── Model fetch state ──────────────────────────────────────
-    // Fix #3: removed dead _filteredModels array; modelListModel is the single source of truth
     property var _fetchedModels: []
-    property string _fetchStatus: "" // "": idle  "loading"  "ok"  "error"
+    property string _fetchStatus: ""
     property string _fetchError: ""
-    // Fix #12: store search query as a property instead of directly referencing
-    //          a deeply-nested UI element from the helper function
     property string _modelSearchQuery: ""
     // ── Test connection state ──────────────────────────────────
-    // Fix #9: new inline test connection feature
     property string _testStatus: ""
-    // "": idle  "testing"  "ok"  "error"
     property string _testError: ""
 
     // ── Helper: rebuild modelListModel from _fetchedModels + filter ──
-    // Fix #3 & #12: uses _modelSearchQuery property, not a UI element reference
     function _filterModels(query) {
         _modelSearchQuery = query || "";
         var src = _fetchedModels;
@@ -122,7 +118,6 @@ QQC2.ScrollView {
             var idx = list.indexOf(cur);
             if (idx >= 0)
                 modelCombo.currentIndex = idx;
-
         }, function(errMsg) {
             _fetchStatus = "error";
             _fetchError = errMsg;
@@ -194,7 +189,6 @@ QQC2.ScrollView {
         var idx = _providerIds.indexOf(saved);
         apiProviderCombo.currentIndex = idx >= 0 ? idx : 6;
         modelCombo.editText = plasmoid.configuration.modelName || "";
-        // Restore TTS voice model preset combo index
         var savedModelPath = plasmoid.configuration.ttsPiperModelPath || "";
         var found = false;
         for (var i = 0; i < _piperVoicePresets.length - 1; i++) {
@@ -207,15 +201,14 @@ QQC2.ScrollView {
         }
         if (!found) {
             if (savedModelPath !== "") {
-                piperModelPresetCombo.currentIndex = 3; // Custom
+                piperModelPresetCombo.currentIndex = 3;
             } else {
-                piperModelPresetCombo.currentIndex = 0; // Default to Amy Low
+                piperModelPresetCombo.currentIndex = 0;
                 var defaultPreset = _piperVoicePresets[0];
                 cfg_ttsPiperModelPath = "$HOME/.local/share/kdeassistant/tts/" + defaultPreset.id + ".onnx";
             }
         }
         _checkModelStatus();
-        // Generate random webserver passcode token if none exists
         if (cfg_webserverToken === "") {
             var chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
             var token = "";
@@ -225,7 +218,6 @@ QQC2.ScrollView {
             cfg_webserverToken = token;
             plasmoid.configuration.webserverToken = token;
         }
-        // Retrieve local IP address for helper label
         configRunner.execute("ip route get 1.1.1.1 2>/dev/null | awk '{print $7}' || ip addr | grep -v '127.0.0.1' | grep 'inet ' | awk '{print $2}' | cut -d/ -f1 | head -n1", function(stdout, stderr, exitCode) {
             var ip = stdout.trim();
             if (ip)
@@ -241,21 +233,10 @@ QQC2.ScrollView {
     }
 
     // ════════════════════════════════════════════════════════════
-    // Form — width constrained so no horizontal scrolling occurs
+    // Form — organized into 6 collapsible groups so the page
+    // doesn't overwhelm users with 11 flat sections at once.
     // ════════════════════════════════════════════════════════════
-    Kirigami.FormLayout {
-        // ── SECTION: API Provider ────────────────────────────────
-        // ── SECTION: Model ───────────────────────────────────────
-        // ── SECTION: Generation Parameters ──────────────────────
-        // ── SECTION: System Prompt ───────────────────────────────
-        // ── SECTION: Memory & Notes ──────────────────────────────
-        // ── SECTION: Web Search ──────────────────────────────────
-        // ── SECTION: Local File Search ───────────────────────────
-        // ── SECTION: Prayer Times ─────────────────────────────
-        // ── SECTION: Speech-to-Text (STT) ──────────────────────────
-        // ── SECTION: Text-to-Speech (TTS) ──────────────────────────
-        // ── SECTION: Mobile Web Access ──────────────────────────
-
+    ColumnLayout {
         id: page
 
         property var _methodNames: [i18n("Muslim World League (MWL)"), i18n("Islamic Society of North America (ISNA)"), i18n("Umm Al-Qura University, Makkah"), i18n("Egyptian General Authority of Survey"), i18n("Institute of Geophysics, Tehran"), i18n("Gulf Region"), i18n("Kuwait"), i18n("Qatar"), i18n("MUIS, Singapore"), i18n("Diyanet, Turkey"), i18n("Moonsighting Committee Worldwide")]
@@ -263,860 +244,834 @@ QQC2.ScrollView {
 
         width: scrollRoot.availableWidth
         height: implicitHeight
+        spacing: Kirigami.Units.smallSpacing
 
-        Item {
-            Kirigami.FormData.isSection: true
-            Kirigami.FormData.label: i18n("API Provider")
-        }
-
-        QQC2.ComboBox {
-            id: apiProviderCombo
-
-            Kirigami.FormData.label: i18n("Provider:")
-            model: [i18n("OpenRouter"), i18n("OpenAI"), i18n("Google (Gemini)"), i18n("LM Studio (local)"), i18n("Ollama (local)"), i18n("llama.cpp (local)"), i18n("Custom")]
-            onActivated: {
-                var id = scrollRoot._providerIds[currentIndex];
-                var url = scrollRoot._providerUrls[currentIndex];
-                plasmoid.configuration.apiProvider = id;
-                if (id !== "custom") {
-                    scrollRoot._currentApiUrl = url;
-                    apiUrl.text = url;
-                    plasmoid.configuration.apiUrl = url;
-                }
-                // Fix #10: provider changed — stale model list and test result are invalid
-                scrollRoot._fetchedModels = [];
-                scrollRoot._fetchStatus = "";
-                scrollRoot._fetchError = "";
-                scrollRoot._testStatus = "";
-                scrollRoot._testError = "";
-                modelListModel.clear();
-            }
-        }
-
-        // API URL row — includes Test Connection button (Fix #9)
-        RowLayout {
-            Kirigami.FormData.label: i18n("API URL:")
+        // ─────────────────────────────────────────────────────────
+        // GROUP 1: AI Model — expanded by default (most used)
+        // ─────────────────────────────────────────────────────────
+        Components.CollapsibleBlock {
+            id: aiModelGroup
+            title: i18n("AI Model")
+            expanded: true
             Layout.fillWidth: true
-            spacing: Kirigami.Units.smallSpacing
 
-            // Fix #4 & #13: placeholderText guides Custom mode users
-            QQC2.TextField {
-                id: apiUrl
+            Kirigami.FormLayout {
+                width: parent.width
 
-                Layout.fillWidth: true
-                text: scrollRoot._currentApiUrl
-                enabled: apiProviderCombo.currentIndex === 6 // Custom only
-                opacity: enabled ? 1 : 0.55
-                placeholderText: i18n("http://localhost:PORT/v1")
-                onTextChanged: {
-                    if (enabled) {
-                        scrollRoot._currentApiUrl = text;
-                        plasmoid.configuration.apiUrl = text;
-                        // URL changed — previous test result is stale
+                QQC2.ComboBox {
+                    id: apiProviderCombo
+
+                    Kirigami.FormData.label: i18n("Provider:")
+                    model: [i18n("OpenRouter"), i18n("OpenAI"), i18n("Google (Gemini)"), i18n("LM Studio (local)"), i18n("Ollama (local)"), i18n("llama.cpp (local)"), i18n("Custom")]
+                    onActivated: {
+                        var id = scrollRoot._providerIds[currentIndex];
+                        var url = scrollRoot._providerUrls[currentIndex];
+                        plasmoid.configuration.apiProvider = id;
+                        if (id !== "custom") {
+                            scrollRoot._currentApiUrl = url;
+                            apiUrl.text = url;
+                            plasmoid.configuration.apiUrl = url;
+                        }
+                        scrollRoot._fetchedModels = [];
+                        scrollRoot._fetchStatus = "";
+                        scrollRoot._fetchError = "";
                         scrollRoot._testStatus = "";
                         scrollRoot._testError = "";
+                        modelListModel.clear();
                     }
                 }
 
-                QQC2.ToolTip {
-                    visible: !apiUrl.enabled && apiUrl.hovered
-                    text: i18n("URL is preset for the selected provider. Choose \"Custom\" to edit.")
-                }
+                RowLayout {
+                    Kirigami.FormData.label: i18n("API URL:")
+                    Layout.fillWidth: true
+                    spacing: Kirigami.Units.smallSpacing
 
-            }
+                    QQC2.TextField {
+                        id: apiUrl
 
-            // Fix #9: Test Connection button
-            QQC2.Button {
-                id: testConnBtn
-
-                icon.name: scrollRoot._testStatus === "ok" ? "dialog-ok-apply" : scrollRoot._testStatus === "error" ? "dialog-error" : scrollRoot._testStatus === "testing" ? "view-refresh" : "network-connect"
-                text: scrollRoot._testStatus === "testing" ? i18n("Testing…") : scrollRoot._testStatus === "ok" ? i18n("Connected!") : scrollRoot._testStatus === "error" ? i18n("Failed") : i18n("Test")
-                enabled: scrollRoot._testStatus !== "testing"
-                onClicked: scrollRoot._testConnection()
-            }
-
-        }
-
-        // Test result error line (collapses when no error)
-        QQC2.Label {
-            visible: scrollRoot._testStatus === "error"
-            height: visible ? implicitHeight : 0
-            text: "⚠ " + scrollRoot._testError
-            color: Kirigami.Theme.negativeTextColor
-            font.pointSize: Kirigami.Theme.smallFont.pointSize
-            wrapMode: Text.WordWrap
-            Layout.fillWidth: true
-        }
-
-        // API Key — label adapts based on whether the provider needs one
-        QQC2.TextField {
-            id: apiKey
-
-            Kirigami.FormData.label: {
-                var idx = apiProviderCombo.currentIndex;
-                if (idx >= 0 && idx < scrollRoot._providerNeedsKey.length && !scrollRoot._providerNeedsKey[idx])
-                    return i18n("API Key: (not required for local)");
-
-                return i18n("API Key:");
-            }
-            echoMode: TextInput.Password
-            onTextChanged: plasmoid.configuration.apiKey = text
-            Component.onCompleted: text = plasmoid.configuration.apiKey || ""
-        }
-
-        Item {
-            Kirigami.FormData.isSection: true
-            Kirigami.FormData.label: i18n("Model")
-        }
-
-        RowLayout {
-            Kirigami.FormData.label: i18n("Model:")
-            Layout.fillWidth: true
-            spacing: Kirigami.Units.smallSpacing
-
-            QQC2.ComboBox {
-                id: modelCombo
-
-                Layout.fillWidth: true
-                editable: true
-                textRole: "modelId"
-                onActivated: plasmoid.configuration.modelName = currentValue
-                onEditTextChanged: plasmoid.configuration.modelName = editText
-
-                model: ListModel {
-                    id: modelListModel
-                }
-
-                popup: QQC2.Popup {
-                    y: modelCombo.height
-                    width: modelCombo.width
-                    implicitHeight: Math.min(popupCol.implicitHeight + 2, Kirigami.Units.gridUnit * 16)
-                    padding: 1
-
-                    contentItem: ColumnLayout {
-                        id: popupCol
-
-                        spacing: 0
-
-                        QQC2.TextField {
-                            id: modelSearchField
-
-                            Layout.fillWidth: true
-                            Layout.margins: Kirigami.Units.smallSpacing
-                            placeholderText: i18n("Search models…")
-                            // Fix #12: writes to property, not read back by reference
-                            onTextChanged: scrollRoot._filterModels(text)
-
-                            Connections {
-                                function onVisibleChanged() {
-                                    if (!modelCombo.popup.visible)
-                                        modelSearchField.text = "";
-
-                                }
-
-                                target: modelCombo.popup
+                        Layout.fillWidth: true
+                        text: scrollRoot._currentApiUrl
+                        enabled: apiProviderCombo.currentIndex === 6
+                        opacity: enabled ? 1 : 0.55
+                        placeholderText: i18n("http://localhost:PORT/v1")
+                        onTextChanged: {
+                            if (enabled) {
+                                scrollRoot._currentApiUrl = text;
+                                plasmoid.configuration.apiUrl = text;
+                                scrollRoot._testStatus = "";
+                                scrollRoot._testError = "";
                             }
-
                         }
 
-                        Kirigami.Separator {
-                            Layout.fillWidth: true
+                        QQC2.ToolTip {
+                            visible: !apiUrl.enabled && apiUrl.hovered
+                            text: i18n("URL is preset for the selected provider. Choose \"Custom\" to edit.")
+                        }
+                    }
+
+                    QQC2.Button {
+                        id: testConnBtn
+
+                        icon.name: scrollRoot._testStatus === "ok" ? "dialog-ok-apply" : scrollRoot._testStatus === "error" ? "dialog-error" : scrollRoot._testStatus === "testing" ? "view-refresh" : "network-connect"
+                        text: scrollRoot._testStatus === "testing" ? i18n("Testing…") : scrollRoot._testStatus === "ok" ? i18n("Connected!") : scrollRoot._testStatus === "error" ? i18n("Failed") : i18n("Test")
+                        enabled: scrollRoot._testStatus !== "testing"
+                        onClicked: scrollRoot._testConnection()
+                    }
+                }
+
+                QQC2.Label {
+                    visible: scrollRoot._testStatus === "error"
+                    height: visible ? implicitHeight : 0
+                    text: "⚠ " + scrollRoot._testError
+                    color: Kirigami.Theme.negativeTextColor
+                    font.pointSize: Kirigami.Theme.smallFont.pointSize
+                    wrapMode: Text.Wrap
+                    Layout.fillWidth: true
+                }
+
+                QQC2.TextField {
+                    id: apiKey
+
+                    Kirigami.FormData.label: {
+                        var idx = apiProviderCombo.currentIndex;
+                        if (idx >= 0 && idx < scrollRoot._providerNeedsKey.length && !scrollRoot._providerNeedsKey[idx])
+                            return i18n("API Key: (not required for local)");
+
+                        return i18n("API Key:");
+                    }
+                    echoMode: TextInput.Password
+                    onTextChanged: plasmoid.configuration.apiKey = text
+                    Component.onCompleted: text = plasmoid.configuration.apiKey || ""
+                }
+
+                // ── Model ────────────────────────────────────────
+                RowLayout {
+                    Kirigami.FormData.label: i18n("Model:")
+                    Layout.fillWidth: true
+                    spacing: Kirigami.Units.smallSpacing
+
+                    QQC2.ComboBox {
+                        id: modelCombo
+
+                        Layout.fillWidth: true
+                        editable: true
+                        textRole: "modelId"
+                        onActivated: plasmoid.configuration.modelName = currentValue
+                        onEditTextChanged: plasmoid.configuration.modelName = editText
+
+                        model: ListModel {
+                            id: modelListModel
                         }
 
-                        QQC2.ScrollView {
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            clip: true
+                        popup: QQC2.Popup {
+                            y: modelCombo.height
+                            width: modelCombo.width
+                            implicitHeight: Math.min(popupCol.implicitHeight + 2, Kirigami.Units.gridUnit * 16)
+                            padding: 1
 
-                            ListView {
-                                id: modelListView
+                            contentItem: ColumnLayout {
+                                id: popupCol
 
-                                model: modelListModel
+                                spacing: 0
 
-                                QQC2.Label {
-                                    anchors.centerIn: parent
-                                    visible: modelListModel.count === 0
-                                    text: scrollRoot._fetchStatus === "loading" ? i18n("Fetching models…") : scrollRoot._fetchStatus === "" ? i18n("Click Fetch Models to load the list") : scrollRoot._fetchStatus === "error" ? i18n("Could not load models") : i18n("No models match your search")
-                                    color: Kirigami.Theme.disabledTextColor
-                                    font.pointSize: Kirigami.Theme.smallFont.pointSize
-                                }
+                                QQC2.TextField {
+                                    id: modelSearchField
 
-                                delegate: QQC2.ItemDelegate {
-                                    required property string modelId
-                                    required property int index
+                                    Layout.fillWidth: true
+                                    Layout.margins: Kirigami.Units.smallSpacing
+                                    placeholderText: i18n("Search models…")
+                                    onTextChanged: scrollRoot._filterModels(text)
 
-                                    width: ListView.view.width
-                                    text: modelId
-                                    highlighted: modelCombo.editText === modelId
-                                    onClicked: {
-                                        modelCombo.editText = modelId;
-                                        plasmoid.configuration.modelName = modelId;
-                                        modelCombo.popup.close();
+                                    Connections {
+                                        function onVisibleChanged() {
+                                            if (!modelCombo.popup.visible)
+                                                modelSearchField.text = "";
+                                        }
+                                        target: modelCombo.popup
                                     }
                                 }
 
-                            }
-
-                        }
-
-                    }
-
-                    background: Rectangle {
-                        color: Kirigami.Theme.backgroundColor
-                        border.color: Kirigami.Theme.disabledTextColor
-                        border.width: 1
-                        radius: 4
-                    }
-
-                }
-
-            }
-
-            QQC2.Button {
-                id: fetchModelsBtn
-
-                icon.name: scrollRoot._fetchStatus === "loading" ? "view-refresh" : "network-connect"
-                text: scrollRoot._fetchStatus === "loading" ? i18n("Fetching…") : i18n("Fetch Models")
-                enabled: scrollRoot._fetchStatus !== "loading"
-                onClicked: scrollRoot._fetchModels()
-            }
-
-        }
-
-        // Fetch status line (collapses when idle)
-        QQC2.Label {
-            visible: scrollRoot._fetchStatus === "error" || scrollRoot._fetchStatus === "ok"
-            height: visible ? implicitHeight : 0
-            text: scrollRoot._fetchStatus === "error" ? "⚠ " + scrollRoot._fetchError : "✓ " + scrollRoot._fetchedModels.length + " " + i18n("models loaded")
-            color: scrollRoot._fetchStatus === "error" ? Kirigami.Theme.negativeTextColor : Kirigami.Theme.positiveTextColor
-            font.pointSize: Kirigami.Theme.smallFont.pointSize
-            wrapMode: Text.WordWrap
-            Layout.fillWidth: true
-        }
-
-        Item {
-            Kirigami.FormData.isSection: true
-            Kirigami.FormData.label: i18n("Generation Parameters")
-        }
-
-        // Fix #5: Slider with live decimal readout replaces the confusing "x100" SpinBox
-        // Fix #1: onMoved only fires on user interaction — no load-time race condition
-        RowLayout {
-            Kirigami.FormData.label: i18n("Temperature:")
-            spacing: Kirigami.Units.smallSpacing
-
-            QQC2.Slider {
-                id: temperature
-
-                from: 0
-                to: 2
-                stepSize: 0.05
-                Layout.minimumWidth: Kirigami.Units.gridUnit * 10
-                Component.onCompleted: value = plasmoid.configuration.temperature || 0.7
-                onMoved: plasmoid.configuration.temperature = Math.round(value * 100) / 100
-            }
-
-            QQC2.Label {
-                text: temperature.value.toFixed(2)
-                Layout.minimumWidth: Kirigami.Units.gridUnit * 2
-                horizontalAlignment: Text.AlignRight
-            }
-
-        }
-
-        // Fix #2: onValueModified only fires on user interaction — no load-time race condition
-        QQC2.SpinBox {
-            id: maxTokens
-
-            Kirigami.FormData.label: i18n("Max Tokens (0 = unlimited):")
-            from: 0
-            to: 999999
-            stepSize: 256
-            Component.onCompleted: value = plasmoid.configuration.maxTokens || 0
-            onValueModified: plasmoid.configuration.maxTokens = value
-        }
-
-        QQC2.SpinBox {
-            id: contextWindowSize
-
-            Kirigami.FormData.label: i18n("Context Window Size (tokens):")
-            from: 1000
-            to: 2e+06
-            stepSize: 1000
-            Component.onCompleted: value = plasmoid.configuration.contextWindowSize || 128000
-            onValueModified: plasmoid.configuration.contextWindowSize = value
-        }
-
-        QQC2.Label {
-            text: i18n("Set this to match your model's context window (e.g. 4096, 8192, 32768, 128000).")
-            color: Kirigami.Theme.disabledTextColor
-            font.pointSize: Kirigami.Theme.smallFont.pointSize
-            wrapMode: Text.WordWrap
-            Layout.fillWidth: true
-        }
-
-        Item {
-            Kirigami.FormData.isSection: true
-            Kirigami.FormData.label: i18n("System Prompt")
-        }
-
-        QQC2.TextArea {
-            id: systemPrompt
-
-            Layout.fillWidth: true
-            Layout.fillHeight: false
-            Layout.preferredHeight: Kirigami.Units.gridUnit * 7
-            Layout.maximumHeight: Kirigami.Units.gridUnit * 7
-            wrapMode: TextEdit.Wrap
-            Component.onCompleted: text = plasmoid.configuration.systemPrompt || "You are a helpful assistant."
-            onTextChanged: plasmoid.configuration.systemPrompt = text
-        }
-
-        Item {
-            Kirigami.FormData.isSection: true
-            Kirigami.FormData.label: i18n("Memory & Notes")
-        }
-
-        // Hint label
-        QQC2.Label {
-            text: i18n("Personal notes prepended to every conversation.\nThe AI also saves facts here automatically when you ask it to remember something.")
-            color: Kirigami.Theme.disabledTextColor
-            font.pointSize: Kirigami.Theme.smallFont.pointSize
-            wrapMode: Text.WordWrap
-            Layout.fillWidth: true
-        }
-
-        QQC2.TextArea {
-            id: userNotes
-
-            Layout.fillWidth: true
-            Layout.fillHeight: false
-            Layout.preferredHeight: Kirigami.Units.gridUnit * 6
-            Layout.maximumHeight: Kirigami.Units.gridUnit * 6
-            wrapMode: TextEdit.Wrap
-            placeholderText: i18n("E.g. My name is Hadi. I use KDE Plasma on Arch Linux. I work in Qt/QML and Python.")
-        }
-
-        Item {
-            Kirigami.FormData.isSection: true
-            Kirigami.FormData.label: i18n("Web Search")
-        }
-
-        QQC2.CheckBox {
-            id: searchEnabled
-
-            text: i18n("Enable Web Search")
-        }
-
-        // Fix #6: all web search controls dimmed when search is disabled
-        QQC2.ComboBox {
-            id: searchProviderCombo
-
-            Kirigami.FormData.label: i18n("Provider:")
-            model: ["DuckDuckGo", "Tavily", "SearXNG", "Google"]
-            enabled: searchEnabled.checked
-            opacity: enabled ? 1 : 0.5
-            currentIndex: {
-                var p = plasmoid.configuration.searchProvider;
-                var idx = scrollRoot._searchProviders.indexOf(p);
-                return idx >= 0 ? idx : 0;
-            }
-            onActivated: plasmoid.configuration.searchProvider = scrollRoot._searchProviders[currentIndex]
-        }
-
-        // Fix #7: contextual hint so users know which fields are required for each provider
-        QQC2.Label {
-            visible: searchEnabled.checked
-            height: visible ? implicitHeight : 0
-            text: {
-                var p = scrollRoot._searchProviders[searchProviderCombo.currentIndex];
-                if (p === "ddg")
-                    return i18n("No API key needed — free, privacy-respecting");
-
-                if (p === "tavily")
-                    return i18n("Requires a Tavily API key below");
-
-                if (p === "searxng")
-                    return i18n("Requires a self-hosted SearXNG instance URL below");
-
-                if (p === "google")
-                    return i18n("Requires a Google API key and a Custom Search Engine CX below");
-
-                return "";
-            }
-            color: Kirigami.Theme.disabledTextColor
-            font.pointSize: Kirigami.Theme.smallFont.pointSize
-            wrapMode: Text.WordWrap
-            Layout.fillWidth: true
-        }
-
-        // Fix #6: key field is only active for providers that need it
-        QQC2.TextField {
-            id: searchApiKey
-
-            Kirigami.FormData.label: i18n("API Key / CX:")
-            enabled: searchEnabled.checked && (scrollRoot._searchProviders[searchProviderCombo.currentIndex] === "tavily" || scrollRoot._searchProviders[searchProviderCombo.currentIndex] === "google")
-            opacity: enabled ? 1 : 0.5
-        }
-
-        // Fix #6: URL field only active for SearXNG; label and placeholder clarify purpose
-        QQC2.TextField {
-            id: searchExtraUrl
-
-            Kirigami.FormData.label: i18n("SearXNG Instance URL:")
-            placeholderText: i18n("https://searxng.example.com")
-            enabled: searchEnabled.checked && scrollRoot._searchProviders[searchProviderCombo.currentIndex] === "searxng"
-            opacity: enabled ? 1 : 0.5
-        }
-
-        Item {
-            Kirigami.FormData.isSection: true
-            Kirigami.FormData.label: i18n("Local File Search")
-        }
-
-        QQC2.ComboBox {
-            id: grepProviderCombo
-
-            Kirigami.FormData.label: i18n("Provider:")
-            model: ["grep", "ripgrep"]
-            currentIndex: {
-                var p = plasmoid.configuration.grepProvider;
-                var idx = scrollRoot._grepProviders.indexOf(p);
-                return idx >= 0 ? idx : 0;
-            }
-            onActivated: plasmoid.configuration.grepProvider = scrollRoot._grepProviders[currentIndex]
-        }
-
-        QQC2.SpinBox {
-            id: grepMaxResults
-
-            Kirigami.FormData.label: i18n("Max Results:")
-            from: 1
-            to: 200
-        }
-
-        Item {
-            Kirigami.FormData.isSection: true
-            Kirigami.FormData.label: i18n("Prayer Times")
-        }
-
-        QQC2.Label {
-            text: i18n("Location and calculation method for Islamic prayer times.\nThe AI will use these when you ask about prayer times.")
-            color: Kirigami.Theme.disabledTextColor
-            font.pointSize: Kirigami.Theme.smallFont.pointSize
-            wrapMode: Text.WordWrap
-            Layout.fillWidth: true
-        }
-
-        RowLayout {
-            Kirigami.FormData.label: i18n("Coordinates:")
-            spacing: Kirigami.Units.smallSpacing
-
-            QQC2.TextField {
-                id: prayerLat
-
-                Layout.fillWidth: true
-                placeholderText: i18n("Latitude (e.g. 52.52)")
-                Component.onCompleted: text = plasmoid.configuration.prayerLatitude || ""
-                onTextChanged: plasmoid.configuration.prayerLatitude = parseFloat(text) || 0
-            }
-
-            QQC2.Label {
-                text: ","
-            }
-
-            QQC2.TextField {
-                id: prayerLng
-
-                Layout.fillWidth: true
-                placeholderText: i18n("Longitude (e.g. 13.405)")
-                Component.onCompleted: text = plasmoid.configuration.prayerLongitude || ""
-                onTextChanged: plasmoid.configuration.prayerLongitude = parseFloat(text) || 0
-            }
-
-        }
-
-        QQC2.Label {
-            text: i18n("Find your coordinates at google.com/maps")
-            color: Kirigami.Theme.disabledTextColor
-            font.pointSize: Kirigami.Theme.smallFont.pointSize
-            wrapMode: Text.WordWrap
-            Layout.fillWidth: true
-        }
-
-        QQC2.ComboBox {
-            id: prayerMethodCombo
-
-            Kirigami.FormData.label: i18n("Calculation Method:")
-            model: scrollRoot._methodNames
-            currentIndex: {
-                var m = plasmoid.configuration.prayerMethod || 3;
-                var idx = scrollRoot._methodIds.indexOf(m);
-                return idx >= 0 ? idx : 1; // Default to ISNA (index 1)
-            }
-            onActivated: plasmoid.configuration.prayerMethod = scrollRoot._methodIds[currentIndex]
-        }
-
-        Item {
-            Kirigami.FormData.isSection: true
-            Kirigami.FormData.label: i18n("Speech-to-Text (STT)")
-        }
-
-        QQC2.ComboBox {
-            id: sttBackendCombo
-
-            Kirigami.FormData.label: i18n("STT Backend:")
-            model: [{
-                "text": i18n("Whisper API (Cloud)"),
-                "value": "cloud"
-            }, {
-                "text": i18n("LM Studio Local Server"),
-                "value": "lms"
-            }, {
-                "text": i18n("Local whisper.cpp (Offline CLI)"),
-                "value": "local"
-            }, {
-                "text": i18n("Local whisper.cpp (Live DBus Stream)"),
-                "value": "local_dbus"
-            }, {
-                "text": i18n("Disabled"),
-                "value": "disabled"
-            }]
-            textRole: "text"
-            currentIndex: {
-                var val = scrollRoot.cfg_sttBackend;
-                var idx = ["cloud", "lms", "local", "local_dbus", "disabled"].indexOf(val);
-                return idx >= 0 ? idx : 4; // Default to Disabled (index 4)
-            }
-            onActivated: {
-                scrollRoot.cfg_sttBackend = ["cloud", "lms", "local", "local_dbus", "disabled"][currentIndex];
-            }
-        }
-
-        QQC2.ComboBox {
-            id: sttLanguageCombo
-
-            Kirigami.FormData.label: i18n("Preferred Language:")
-            model: [{
-                "text": i18n("English (US)"),
-                "value": "en-US"
-            }, {
-                "text": i18n("Arabic"),
-                "value": "ar-SA"
-            }]
-            textRole: "text"
-            currentIndex: {
-                var val = scrollRoot.cfg_sttLanguage;
-                var idx = ["en-US", "ar-SA"].indexOf(val);
-                return idx >= 0 ? idx : 0;
-            }
-            onActivated: {
-                scrollRoot.cfg_sttLanguage = ["en-US", "ar-SA"][currentIndex];
-            }
-        }
-
-        // Cloud STT settings (visible if backend == 'cloud')
-        QQC2.TextField {
-            id: sttCloudUrl
-
-            Kirigami.FormData.label: i18n("Whisper API Endpoint:")
-            visible: sttBackendCombo.currentIndex === 0
-        }
-
-        QQC2.TextField {
-            id: sttCloudApiKey
-
-            Kirigami.FormData.label: i18n("API Key:")
-            echoMode: QQC2.TextField.Password
-            placeholderText: i18n("Leave blank to reuse main LLM API Key")
-            visible: sttBackendCombo.currentIndex === 0
-        }
-
-        // LM Studio settings (visible if backend == 'lms')
-        QQC2.TextField {
-            id: sttLmsUrl
-
-            Kirigami.FormData.label: i18n("LM Studio Server URL:")
-            placeholderText: "http://localhost:1234"
-            visible: sttBackendCombo.currentIndex === 1
-        }
-
-        RowLayout {
-            Kirigami.FormData.label: i18n("Whisper Model:")
-            visible: sttBackendCombo.currentIndex === 1
-            spacing: Kirigami.Units.smallSpacing
-
-            QQC2.ComboBox {
-                id: lmsModelCombo
-
-                Layout.fillWidth: true
-                textRole: ""
-                model: scrollRoot.cfg_sttLmsModel ? [scrollRoot.cfg_sttLmsModel] : []
-                currentIndex: 0
-                onActivated: {
-                    scrollRoot.cfg_sttLmsModel = currentText;
-                }
-            }
-
-            QQC2.Button {
-                text: i18n("Fetch Models")
-                onClicked: {
-                    var baseUrl = sttLmsUrl.text.trim();
-                    if (!baseUrl)
-                        baseUrl = "http://localhost:1234";
-
-                    var match = baseUrl.match(/^https?:\/\/[^\/]+/);
-                    var origin = match ? match[0] : baseUrl;
-                    var modelsUrl = origin + "/v1/models";
-                    var xhr = new XMLHttpRequest();
-                    xhr.open("GET", modelsUrl, true);
-                    xhr.onreadystatechange = function() {
-                        if (xhr.readyState === XMLHttpRequest.DONE) {
-                            if (xhr.status === 200) {
-                                try {
-                                    var resp = JSON.parse(xhr.responseText);
-                                    var modelsList = [];
-                                    if (resp.data && Array.isArray(resp.data)) {
-                                        for (var i = 0; i < resp.data.length; i++) {
-                                            var m = resp.data[i];
-                                            modelsList.push(m.id);
+                                Kirigami.Separator { Layout.fillWidth: true }
+
+                                QQC2.ScrollView {
+                                    Layout.fillWidth: true
+                                    Layout.fillHeight: true
+                                    clip: true
+
+                                    ListView {
+                                        id: modelListView
+
+                                        model: modelListModel
+
+                                        QQC2.Label {
+                                            anchors.centerIn: parent
+                                            visible: modelListModel.count === 0
+                                            text: scrollRoot._fetchStatus === "loading" ? i18n("Fetching models…") : scrollRoot._fetchStatus === "" ? i18n("Click Fetch Models to load the list") : scrollRoot._fetchStatus === "error" ? i18n("Could not load models") : i18n("No models match your search")
+                                            color: Kirigami.Theme.disabledTextColor
+                                            font.pointSize: Kirigami.Theme.smallFont.pointSize
+                                        }
+
+                                        delegate: QQC2.ItemDelegate {
+                                            required property string modelId
+                                            required property int index
+
+                                            width: ListView.view.width
+                                            text: modelId
+                                            highlighted: modelCombo.editText === modelId
+                                            onClicked: {
+                                                modelCombo.editText = modelId;
+                                                plasmoid.configuration.modelName = modelId;
+                                                modelCombo.popup.close();
+                                            }
                                         }
                                     }
-                                    if (modelsList.length > 0) {
-                                        lmsModelCombo.model = modelsList;
-                                        var savedModel = scrollRoot.cfg_sttLmsModel;
-                                        var idx = modelsList.indexOf(savedModel);
-                                        lmsModelCombo.currentIndex = idx >= 0 ? idx : 0;
-                                        scrollRoot.cfg_sttLmsModel = modelsList[lmsModelCombo.currentIndex];
-                                        lmsStatusLabel.text = i18n("Fetched %1 models successfully.").arg(modelsList.length);
-                                        lmsStatusLabel.color = "green";
-                                    } else {
-                                        lmsStatusLabel.text = i18n("No models loaded.");
-                                        lmsStatusLabel.color = "orange";
-                                    }
-                                } catch (e) {
-                                    lmsStatusLabel.text = i18n("Parse error: %1").arg(e.message);
-                                    lmsStatusLabel.color = "red";
                                 }
-                            } else {
-                                lmsStatusLabel.text = i18n("Connection failed (HTTP %1).").arg(xhr.status);
-                                lmsStatusLabel.color = "red";
+                            }
+
+                            background: Rectangle {
+                                color: Kirigami.Theme.backgroundColor
+                                border.color: Kirigami.Theme.disabledTextColor
+                                border.width: 1
+                                radius: 4
                             }
                         }
-                    };
-                    lmsStatusLabel.text = i18n("Connecting...");
-                    lmsStatusLabel.color = "gray";
-                    xhr.send();
-                }
-            }
-
-        }
-
-        QQC2.Label {
-            id: lmsStatusLabel
-
-            font.italic: true
-            font.pixelSize: Kirigami.Theme.smallFont.pixelSize
-            visible: sttBackendCombo.currentIndex === 1
-            Kirigami.FormData.label: ""
-            text: ""
-        }
-
-        // Local STT settings (visible if backend == 'local' or 'local_dbus')
-        QQC2.TextField {
-            id: sttWhisperCli
-
-            Kirigami.FormData.label: i18n("whisper.cpp Path:")
-            visible: sttBackendCombo.currentIndex === 2 || sttBackendCombo.currentIndex === 3
-        }
-
-        QQC2.TextField {
-            id: sttWhisperModel
-
-            Kirigami.FormData.label: i18n("Model Path (.bin):")
-            visible: sttBackendCombo.currentIndex === 2 || sttBackendCombo.currentIndex === 3
-        }
-
-        Item {
-            Kirigami.FormData.isSection: true
-            Kirigami.FormData.label: i18n("Text-to-Speech (TTS)")
-        }
-
-        QQC2.ComboBox {
-            id: ttsBackendCombo
-
-            Kirigami.FormData.label: i18n("TTS Backend:")
-            model: [{
-                "text": i18n("Speech Dispatcher (spd-say)"),
-                "value": "spd"
-            }, {
-                "text": i18n("Piper Neural TTS (local)"),
-                "value": "piper"
-            }, {
-                "text": i18n("Disabled"),
-                "value": "disabled"
-            }]
-            textRole: "text"
-            currentIndex: {
-                var val = scrollRoot.cfg_ttsBackend;
-                var idx = ["spd", "piper", "disabled"].indexOf(val);
-                return idx >= 0 ? idx : 2; // Default to Disabled
-            }
-            onActivated: {
-                scrollRoot.cfg_ttsBackend = ["spd", "piper", "disabled"][currentIndex];
-            }
-        }
-
-        // Piper Settings Group (visible if backend == 'piper')
-        QQC2.TextField {
-            id: ttsPiperCli
-
-            Kirigami.FormData.label: i18n("Piper CLI Path:")
-            visible: ttsBackendCombo.currentIndex === 1
-            placeholderText: "piper"
-        }
-
-        QQC2.ComboBox {
-            id: piperModelPresetCombo
-
-            Kirigami.FormData.label: i18n("Voice Model:")
-            visible: ttsBackendCombo.currentIndex === 1
-            model: ["English Amy (Low)", "English Ryan (Medium)", "Arabic Kareem (Medium)", "Custom Model Path"]
-            onActivated: {
-                if (currentIndex !== 3) {
-                    var preset = scrollRoot._piperVoicePresets[currentIndex];
-                    scrollRoot.cfg_ttsPiperModelPath = "$HOME/.local/share/kdeassistant/tts/" + preset.id + ".onnx";
-                    scrollRoot._checkModelStatus();
-                } else {
-                    scrollRoot.cfg_ttsPiperModelPath = "";
-                    scrollRoot._downloadStatus = "Downloaded";
-                }
-            }
-        }
-
-        // Status of Downloader
-        RowLayout {
-            Kirigami.FormData.label: i18n("Model Status:")
-            visible: ttsBackendCombo.currentIndex === 1 && piperModelPresetCombo.currentIndex !== 3
-            spacing: Kirigami.Units.smallSpacing
-
-            QQC2.Label {
-                text: {
-                    if (scrollRoot._downloadStatus === "Downloaded")
-                        return "✓ " + i18n("Downloaded");
-
-                    if (scrollRoot._downloadStatus === "Downloading...")
-                        return "⟳ " + i18n("Downloading...");
-
-                    if (scrollRoot._downloadStatus === "Checking...")
-                        return i18n("Checking...");
-
-                    if (scrollRoot._downloadStatus === "Failed")
-                        return "⚠ " + i18n("Download Failed");
-
-                    return i18n("Not Downloaded");
-                }
-                color: {
-                    if (scrollRoot._downloadStatus === "Downloaded")
-                        return Kirigami.Theme.positiveTextColor;
-
-                    if (scrollRoot._downloadStatus === "Downloading...")
-                        return Kirigami.Theme.highlightColor;
-
-                    if (scrollRoot._downloadStatus === "Failed")
-                        return Kirigami.Theme.negativeTextColor;
-
-                    return Kirigami.Theme.disabledTextColor;
-                }
-            }
-
-            QQC2.Button {
-                text: i18n("Download Model")
-                visible: scrollRoot._downloadStatus !== "Downloaded" && scrollRoot._downloadStatus !== "Checking..."
-                enabled: scrollRoot._downloadStatus !== "Downloading..."
-                onClicked: scrollRoot._downloadModel()
-            }
-
-        }
-
-        // Text field for custom model path
-        QQC2.TextField {
-            id: ttsPiperModel
-
-            Kirigami.FormData.label: i18n("Model Path (.onnx):")
-            visible: ttsBackendCombo.currentIndex === 1 && piperModelPresetCombo.currentIndex === 3
-            placeholderText: "/path/to/voice.onnx"
-            text: scrollRoot.cfg_ttsPiperModelPath
-            onTextChanged: {
-                if (piperModelPresetCombo.currentIndex === 3)
-                    scrollRoot.cfg_ttsPiperModelPath = text;
-
-            }
-        }
-
-        Item {
-            Kirigami.FormData.isSection: true
-            Kirigami.FormData.label: i18n("Mobile Web Access")
-        }
-
-        QQC2.CheckBox {
-            id: webserverEnabled
-
-            Kirigami.FormData.label: i18n("Local Web Server:")
-            text: i18n("Enable Mobile Access (Access via Local Network)")
-        }
-
-        QQC2.SpinBox {
-            id: webserverPort
-
-            Kirigami.FormData.label: i18n("Server Port:")
-            from: 1024
-            to: 65535
-            stepSize: 1
-            editable: true
-            Component.onCompleted: value = plasmoid.configuration.webserverPort || 8080
-            onValueModified: plasmoid.configuration.webserverPort = value
-        }
-
-        QQC2.TextField {
-            id: webserverTokenField
-
-            Kirigami.FormData.label: i18n("Access Passcode:")
-            text: scrollRoot.cfg_webserverToken
-            readOnly: true
-            selectByMouse: true
-            placeholderText: "token"
-            Layout.fillWidth: true
-
-            QQC2.Button {
-                anchors.right: parent.right
-                anchors.top: parent.top
-                anchors.bottom: parent.bottom
-                icon.name: "edit-clear"
-                text: i18n("Regenerate")
-                onClicked: {
-                    var chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-                    var token = "";
-                    for (var k = 0; k < 6; k++) {
-                        token += chars.charAt(Math.floor(Math.random() * chars.length));
                     }
-                    scrollRoot.cfg_webserverToken = token;
-                    plasmoid.configuration.webserverToken = token;
+
+                    QQC2.Button {
+                        id: fetchModelsBtn
+
+                        icon.name: scrollRoot._fetchStatus === "loading" ? "view-refresh" : "network-connect"
+                        text: scrollRoot._fetchStatus === "loading" ? i18n("Fetching…") : i18n("Fetch Models")
+                        enabled: scrollRoot._fetchStatus !== "loading"
+                        onClicked: scrollRoot._fetchModels()
+                    }
+                }
+
+                QQC2.Label {
+                    visible: scrollRoot._fetchStatus === "error" || scrollRoot._fetchStatus === "ok"
+                    height: visible ? implicitHeight : 0
+                    text: scrollRoot._fetchStatus === "error" ? "⚠ " + scrollRoot._fetchError : "✓ " + scrollRoot._fetchedModels.length + " " + i18n("models loaded")
+                    color: scrollRoot._fetchStatus === "error" ? Kirigami.Theme.negativeTextColor : Kirigami.Theme.positiveTextColor
+                    font.pointSize: Kirigami.Theme.smallFont.pointSize
+                    wrapMode: Text.Wrap
+                    Layout.fillWidth: true
+                }
+
+                // ── Generation Parameters ────────────────────────
+                RowLayout {
+                    Kirigami.FormData.label: i18n("Temperature:")
+                    spacing: Kirigami.Units.smallSpacing
+
+                    QQC2.Slider {
+                        id: temperature
+
+                        from: 0
+                        to: 2
+                        stepSize: 0.05
+                        Layout.minimumWidth: Kirigami.Units.gridUnit * 10
+                        Component.onCompleted: value = plasmoid.configuration.temperature || 0.7
+                        onMoved: plasmoid.configuration.temperature = Math.round(value * 100) / 100
+                    }
+
+                    QQC2.Label {
+                        text: temperature.value.toFixed(2)
+                        Layout.minimumWidth: Kirigami.Units.gridUnit * 2
+                        horizontalAlignment: Text.AlignRight
+                    }
+                }
+
+                QQC2.SpinBox {
+                    id: maxTokens
+
+                    Kirigami.FormData.label: i18n("Max Tokens (0 = unlimited):")
+                    from: 0
+                    to: 999999
+                    stepSize: 256
+                    Component.onCompleted: value = plasmoid.configuration.maxTokens || 0
+                    onValueModified: plasmoid.configuration.maxTokens = value
+                }
+
+                QQC2.SpinBox {
+                    id: contextWindowSize
+
+                    Kirigami.FormData.label: i18n("Context Window Size (tokens):")
+                    from: 1000
+                    to: 2e+06
+                    stepSize: 1000
+                    Component.onCompleted: value = plasmoid.configuration.contextWindowSize || 128000
+                    onValueModified: plasmoid.configuration.contextWindowSize = value
+                }
+
+                QQC2.Label {
+                    text: i18n("Set this to match your model's context window (e.g. 4096, 8192, 32768, 128000).")
+                    color: Kirigami.Theme.disabledTextColor
+                    font.pointSize: Kirigami.Theme.smallFont.pointSize
+                    wrapMode: Text.Wrap
+                    Layout.fillWidth: true
+                }
+
+                // ── System Prompt ────────────────────────────────
+                QQC2.TextArea {
+                    id: systemPrompt
+
+                    Layout.fillWidth: true
+                    Layout.fillHeight: false
+                    Layout.preferredHeight: Kirigami.Units.gridUnit * 7
+                    Layout.maximumHeight: Kirigami.Units.gridUnit * 7
+                    wrapMode: TextEdit.Wrap
+                    Component.onCompleted: text = plasmoid.configuration.systemPrompt || "You are a helpful assistant."
+                    onTextChanged: plasmoid.configuration.systemPrompt = text
                 }
             }
-
         }
 
-        QQC2.Label {
-            visible: webserverEnabled.checked
-            font.italic: true
-            font.pixelSize: Kirigami.Theme.smallFont.pixelSize
-            color: Kirigami.Theme.highlightColor
-            text: i18n("Access on your mobile device at: ") + "http://" + scrollRoot._localIpAddress + ":" + webserverPort.value + "?token=" + scrollRoot.cfg_webserverToken
-            wrapMode: Text.WordWrap
+        // ─────────────────────────────────────────────────────────
+        // GROUP 2: Memory & Notes — expanded by default
+        // ─────────────────────────────────────────────────────────
+        Components.CollapsibleBlock {
+            title: i18n("Memory & Notes")
+            expanded: true
             Layout.fillWidth: true
+
+            Kirigami.FormLayout {
+                width: parent.width
+
+                QQC2.Label {
+                    text: i18n("Personal notes prepended to every conversation.\nThe AI also saves facts here automatically when you ask it to remember something.")
+                    color: Kirigami.Theme.disabledTextColor
+                    font.pointSize: Kirigami.Theme.smallFont.pointSize
+                    wrapMode: Text.Wrap
+                    Layout.fillWidth: true
+                }
+
+                QQC2.TextArea {
+                    id: userNotes
+
+                    Layout.fillWidth: true
+                    Layout.fillHeight: false
+                    Layout.preferredHeight: Kirigami.Units.gridUnit * 6
+                    Layout.maximumHeight: Kirigami.Units.gridUnit * 6
+                    wrapMode: TextEdit.Wrap
+                    placeholderText: i18n("E.g. My name is Hadi. I use KDE Plasma on Arch Linux. I work in Qt/QML and Python.")
+                }
+            }
         }
 
+        // ─────────────────────────────────────────────────────────
+        // GROUP 3: Search — collapsed (Web Search + Local File Search)
+        // ─────────────────────────────────────────────────────────
+        Components.CollapsibleBlock {
+            title: i18n("Search")
+            expanded: false
+            Layout.fillWidth: true
+
+            Kirigami.FormLayout {
+                width: parent.width
+
+                QQC2.CheckBox {
+                    id: searchEnabled
+
+                    text: i18n("Enable Web Search")
+                }
+
+                QQC2.ComboBox {
+                    id: searchProviderCombo
+
+                    Kirigami.FormData.label: i18n("Web Provider:")
+                    model: ["DuckDuckGo", "Tavily", "SearXNG", "Google"]
+                    enabled: searchEnabled.checked
+                    opacity: enabled ? 1 : 0.5
+                    currentIndex: {
+                        var p = plasmoid.configuration.searchProvider;
+                        var idx = scrollRoot._searchProviders.indexOf(p);
+                        return idx >= 0 ? idx : 0;
+                    }
+                    onActivated: plasmoid.configuration.searchProvider = scrollRoot._searchProviders[currentIndex]
+                }
+
+                QQC2.Label {
+                    visible: searchEnabled.checked
+                    height: visible ? implicitHeight : 0
+                    text: {
+                        var p = scrollRoot._searchProviders[searchProviderCombo.currentIndex];
+                        if (p === "ddg")
+                            return i18n("No API key needed — free, privacy-respecting");
+                        if (p === "tavily")
+                            return i18n("Requires a Tavily API key below");
+                        if (p === "searxng")
+                            return i18n("Requires a self-hosted SearXNG instance URL below");
+                        if (p === "google")
+                            return i18n("Requires a Google API key and a Custom Search Engine CX below");
+                        return "";
+                    }
+                    color: Kirigami.Theme.disabledTextColor
+                    font.pointSize: Kirigami.Theme.smallFont.pointSize
+                    wrapMode: Text.Wrap
+                    Layout.fillWidth: true
+                }
+
+                QQC2.TextField {
+                    id: searchApiKey
+
+                    Kirigami.FormData.label: i18n("API Key / CX:")
+                    enabled: searchEnabled.checked && (scrollRoot._searchProviders[searchProviderCombo.currentIndex] === "tavily" || scrollRoot._searchProviders[searchProviderCombo.currentIndex] === "google")
+                    opacity: enabled ? 1 : 0.5
+                }
+
+                QQC2.TextField {
+                    id: searchExtraUrl
+
+                    Kirigami.FormData.label: i18n("SearXNG Instance URL:")
+                    placeholderText: i18n("https://searxng.example.com")
+                    enabled: searchEnabled.checked && scrollRoot._searchProviders[searchProviderCombo.currentIndex] === "searxng"
+                    opacity: enabled ? 1 : 0.5
+                }
+
+                QQC2.ComboBox {
+                    id: grepProviderCombo
+
+                    Kirigami.FormData.label: i18n("Local File Search Provider:")
+                    model: ["grep", "ripgrep"]
+                    currentIndex: {
+                        var p = plasmoid.configuration.grepProvider;
+                        var idx = scrollRoot._grepProviders.indexOf(p);
+                        return idx >= 0 ? idx : 0;
+                    }
+                    onActivated: plasmoid.configuration.grepProvider = scrollRoot._grepProviders[currentIndex]
+                }
+
+                QQC2.SpinBox {
+                    id: grepMaxResults
+
+                    Kirigami.FormData.label: i18n("Max Results:")
+                    from: 1
+                    to: 200
+                }
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────
+        // GROUP 4: Voice — collapsed (STT + TTS)
+        // ─────────────────────────────────────────────────────────
+        Components.CollapsibleBlock {
+            title: i18n("Voice (Speech-to-Text & Text-to-Speech)")
+            expanded: false
+            Layout.fillWidth: true
+
+            Kirigami.FormLayout {
+                width: parent.width
+
+                // ── Speech-to-Text ──────────────────────────────
+                QQC2.ComboBox {
+                    id: sttBackendCombo
+
+                    Kirigami.FormData.label: i18n("STT Backend:")
+                    model: [{
+                        "text": i18n("Whisper API (Cloud)"),
+                        "value": "cloud"
+                    }, {
+                        "text": i18n("LM Studio Local Server"),
+                        "value": "lms"
+                    }, {
+                        "text": i18n("Local whisper.cpp (Offline CLI)"),
+                        "value": "local"
+                    }, {
+                        "text": i18n("Local whisper.cpp (Live DBus Stream)"),
+                        "value": "local_dbus"
+                    }, {
+                        "text": i18n("Disabled"),
+                        "value": "disabled"
+                    }]
+                    textRole: "text"
+                    currentIndex: {
+                        var val = scrollRoot.cfg_sttBackend;
+                        var idx = ["cloud", "lms", "local", "local_dbus", "disabled"].indexOf(val);
+                        return idx >= 0 ? idx : 4;
+                    }
+                    onActivated: {
+                        scrollRoot.cfg_sttBackend = ["cloud", "lms", "local", "local_dbus", "disabled"][currentIndex];
+                    }
+                }
+
+                QQC2.ComboBox {
+                    id: sttLanguageCombo
+
+                    Kirigami.FormData.label: i18n("Preferred Language:")
+                    model: [{
+                        "text": i18n("English (US)"),
+                        "value": "en-US"
+                    }, {
+                        "text": i18n("Arabic"),
+                        "value": "ar-SA"
+                    }]
+                    textRole: "text"
+                    currentIndex: {
+                        var val = scrollRoot.cfg_sttLanguage;
+                        var idx = ["en-US", "ar-SA"].indexOf(val);
+                        return idx >= 0 ? idx : 0;
+                    }
+                    onActivated: {
+                        scrollRoot.cfg_sttLanguage = ["en-US", "ar-SA"][currentIndex];
+                    }
+                }
+
+                QQC2.TextField {
+                    id: sttCloudUrl
+
+                    Kirigami.FormData.label: i18n("Whisper API Endpoint:")
+                    visible: sttBackendCombo.currentIndex === 0
+                }
+
+                QQC2.TextField {
+                    id: sttCloudApiKey
+
+                    Kirigami.FormData.label: i18n("API Key:")
+                    echoMode: QQC2.TextField.Password
+                    placeholderText: i18n("Leave blank to reuse main LLM API Key")
+                    visible: sttBackendCombo.currentIndex === 0
+                }
+
+                QQC2.TextField {
+                    id: sttLmsUrl
+
+                    Kirigami.FormData.label: i18n("LM Studio Server URL:")
+                    placeholderText: "http://localhost:1234"
+                    visible: sttBackendCombo.currentIndex === 1
+                }
+
+                RowLayout {
+                    Kirigami.FormData.label: i18n("Whisper Model:")
+                    visible: sttBackendCombo.currentIndex === 1
+                    spacing: Kirigami.Units.smallSpacing
+
+                    QQC2.ComboBox {
+                        id: lmsModelCombo
+
+                        Layout.fillWidth: true
+                        textRole: ""
+                        model: scrollRoot.cfg_sttLmsModel ? [scrollRoot.cfg_sttLmsModel] : []
+                        currentIndex: 0
+                        onActivated: {
+                            scrollRoot.cfg_sttLmsModel = currentText;
+                        }
+                    }
+
+                    QQC2.Button {
+                        text: i18n("Fetch Models")
+                        onClicked: {
+                            var baseUrl = sttLmsUrl.text.trim();
+                            if (!baseUrl)
+                                baseUrl = "http://localhost:1234";
+
+                            var match = baseUrl.match(/^https?:\/\/[^\/]+/);
+                            var origin = match ? match[0] : baseUrl;
+                            var modelsUrl = origin + "/v1/models";
+                            var xhr = new XMLHttpRequest();
+                            xhr.open("GET", modelsUrl, true);
+                            xhr.onreadystatechange = function() {
+                                if (xhr.readyState === XMLHttpRequest.DONE) {
+                                    if (xhr.status === 200) {
+                                        try {
+                                            var resp = JSON.parse(xhr.responseText);
+                                            var modelsList = [];
+                                            if (resp.data && Array.isArray(resp.data)) {
+                                                for (var i = 0; i < resp.data.length; i++) {
+                                                    var m = resp.data[i];
+                                                    modelsList.push(m.id);
+                                                }
+                                            }
+                                            if (modelsList.length > 0) {
+                                                lmsModelCombo.model = modelsList;
+                                                var savedModel = scrollRoot.cfg_sttLmsModel;
+                                                var idx = modelsList.indexOf(savedModel);
+                                                lmsModelCombo.currentIndex = idx >= 0 ? idx : 0;
+                                                scrollRoot.cfg_sttLmsModel = modelsList[lmsModelCombo.currentIndex];
+                                                lmsStatusLabel.text = i18n("Fetched %1 models successfully.").arg(modelsList.length);
+                                                lmsStatusLabel.color = "green";
+                                            } else {
+                                                lmsStatusLabel.text = i18n("No models loaded.");
+                                                lmsStatusLabel.color = "orange";
+                                            }
+                                        } catch (e) {
+                                            lmsStatusLabel.text = i18n("Parse error: %1").arg(e.message);
+                                            lmsStatusLabel.color = "red";
+                                        }
+                                    } else {
+                                        lmsStatusLabel.text = i18n("Connection failed (HTTP %1).").arg(xhr.status);
+                                        lmsStatusLabel.color = "red";
+                                    }
+                                }
+                            };
+                            lmsStatusLabel.text = i18n("Connecting...");
+                            lmsStatusLabel.color = "gray";
+                            xhr.send();
+                        }
+                    }
+                }
+
+                QQC2.Label {
+                    id: lmsStatusLabel
+
+                    font.italic: true
+                    font.pixelSize: Kirigami.Theme.smallFont.pixelSize
+                    visible: sttBackendCombo.currentIndex === 1
+                    Kirigami.FormData.label: ""
+                    text: ""
+                }
+
+                QQC2.TextField {
+                    id: sttWhisperCli
+
+                    Kirigami.FormData.label: i18n("whisper.cpp Path:")
+                    visible: sttBackendCombo.currentIndex === 2 || sttBackendCombo.currentIndex === 3
+                }
+
+                QQC2.TextField {
+                    id: sttWhisperModel
+
+                    Kirigami.FormData.label: i18n("Model Path (.bin):")
+                    visible: sttBackendCombo.currentIndex === 2 || sttBackendCombo.currentIndex === 3
+                }
+
+                // ── Text-to-Speech ──────────────────────────────
+                QQC2.ComboBox {
+                    id: ttsBackendCombo
+
+                    Kirigami.FormData.label: i18n("TTS Backend:")
+                    model: [{
+                        "text": i18n("Speech Dispatcher (spd-say)"),
+                        "value": "spd"
+                    }, {
+                        "text": i18n("Piper Neural TTS (local)"),
+                        "value": "piper"
+                    }, {
+                        "text": i18n("Disabled"),
+                        "value": "disabled"
+                    }]
+                    textRole: "text"
+                    currentIndex: {
+                        var val = scrollRoot.cfg_ttsBackend;
+                        var idx = ["spd", "piper", "disabled"].indexOf(val);
+                        return idx >= 0 ? idx : 2;
+                    }
+                    onActivated: {
+                        scrollRoot.cfg_ttsBackend = ["spd", "piper", "disabled"][currentIndex];
+                    }
+                }
+
+                QQC2.TextField {
+                    id: ttsPiperCli
+
+                    Kirigami.FormData.label: i18n("Piper CLI Path:")
+                    visible: ttsBackendCombo.currentIndex === 1
+                    placeholderText: "piper"
+                }
+
+                QQC2.ComboBox {
+                    id: piperModelPresetCombo
+
+                    Kirigami.FormData.label: i18n("Voice Model:")
+                    visible: ttsBackendCombo.currentIndex === 1
+                    model: ["English Amy (Low)", "English Ryan (Medium)", "Arabic Kareem (Medium)", "Custom Model Path"]
+                    onActivated: {
+                        if (currentIndex !== 3) {
+                            var preset = scrollRoot._piperVoicePresets[currentIndex];
+                            scrollRoot.cfg_ttsPiperModelPath = "$HOME/.local/share/kdeassistant/tts/" + preset.id + ".onnx";
+                            scrollRoot._checkModelStatus();
+                        } else {
+                            scrollRoot.cfg_ttsPiperModelPath = "";
+                            scrollRoot._downloadStatus = "Downloaded";
+                        }
+                    }
+                }
+
+                RowLayout {
+                    Kirigami.FormData.label: i18n("Model Status:")
+                    visible: ttsBackendCombo.currentIndex === 1 && piperModelPresetCombo.currentIndex !== 3
+                    spacing: Kirigami.Units.smallSpacing
+
+                    QQC2.Label {
+                        text: {
+                            if (scrollRoot._downloadStatus === "Downloaded")
+                                return "✓ " + i18n("Downloaded");
+                            if (scrollRoot._downloadStatus === "Downloading...")
+                                return "⟳ " + i18n("Downloading...");
+                            if (scrollRoot._downloadStatus === "Checking...")
+                                return i18n("Checking...");
+                            if (scrollRoot._downloadStatus === "Failed")
+                                return "⚠ " + i18n("Download Failed");
+                            return i18n("Not Downloaded");
+                        }
+                        color: {
+                            if (scrollRoot._downloadStatus === "Downloaded")
+                                return Kirigami.Theme.positiveTextColor;
+                            if (scrollRoot._downloadStatus === "Downloading...")
+                                return Kirigami.Theme.highlightColor;
+                            if (scrollRoot._downloadStatus === "Failed")
+                                return Kirigami.Theme.negativeTextColor;
+                            return Kirigami.Theme.disabledTextColor;
+                        }
+                    }
+
+                    QQC2.Button {
+                        text: i18n("Download Model")
+                        visible: scrollRoot._downloadStatus !== "Downloaded" && scrollRoot._downloadStatus !== "Checking..."
+                        enabled: scrollRoot._downloadStatus !== "Downloading..."
+                        onClicked: scrollRoot._downloadModel()
+                    }
+                }
+
+                QQC2.TextField {
+                    id: ttsPiperModel
+
+                    Kirigami.FormData.label: i18n("Model Path (.onnx):")
+                    visible: ttsBackendCombo.currentIndex === 1 && piperModelPresetCombo.currentIndex === 3
+                    placeholderText: "/path/to/voice.onnx"
+                    text: scrollRoot.cfg_ttsPiperModelPath
+                    onTextChanged: {
+                        if (piperModelPresetCombo.currentIndex === 3)
+                            scrollRoot.cfg_ttsPiperModelPath = text;
+                    }
+                }
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────
+        // GROUP 5: Prayer Times — collapsed
+        // ─────────────────────────────────────────────────────────
+        Components.CollapsibleBlock {
+            title: i18n("Prayer Times")
+            expanded: false
+            Layout.fillWidth: true
+
+            Kirigami.FormLayout {
+                width: parent.width
+
+                QQC2.Label {
+                    text: i18n("Location and calculation method for Islamic prayer times.\nThe AI will use these when you ask about prayer times.")
+                    color: Kirigami.Theme.disabledTextColor
+                    font.pointSize: Kirigami.Theme.smallFont.pointSize
+                    wrapMode: Text.Wrap
+                    Layout.fillWidth: true
+                }
+
+                RowLayout {
+                    Kirigami.FormData.label: i18n("Coordinates:")
+                    spacing: Kirigami.Units.smallSpacing
+
+                    QQC2.TextField {
+                        id: prayerLat
+
+                        Layout.fillWidth: true
+                        placeholderText: i18n("Latitude (e.g. 52.52)")
+                        Component.onCompleted: text = plasmoid.configuration.prayerLatitude || ""
+                        onTextChanged: plasmoid.configuration.prayerLatitude = parseFloat(text) || 0
+                    }
+
+                    QQC2.Label { text: "," }
+
+                    QQC2.TextField {
+                        id: prayerLng
+
+                        Layout.fillWidth: true
+                        placeholderText: i18n("Longitude (e.g. 13.405)")
+                        Component.onCompleted: text = plasmoid.configuration.prayerLongitude || ""
+                        onTextChanged: plasmoid.configuration.prayerLongitude = parseFloat(text) || 0
+                    }
+                }
+
+                QQC2.Label {
+                    text: i18n("Find your coordinates at google.com/maps")
+                    color: Kirigami.Theme.disabledTextColor
+                    font.pointSize: Kirigami.Theme.smallFont.pointSize
+                    wrapMode: Text.Wrap
+                    Layout.fillWidth: true
+                }
+
+                QQC2.ComboBox {
+                    id: prayerMethodCombo
+
+                    Kirigami.FormData.label: i18n("Calculation Method:")
+                    model: page._methodNames
+                    currentIndex: {
+                        var m = plasmoid.configuration.prayerMethod || 3;
+                        var idx = page._methodIds.indexOf(m);
+                        return idx >= 0 ? idx : 1;
+                    }
+                    onActivated: plasmoid.configuration.prayerMethod = page._methodIds[currentIndex]
+                }
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────
+        // GROUP 6: Web Access — collapsed
+        // ─────────────────────────────────────────────────────────
+        Components.CollapsibleBlock {
+            title: i18n("Mobile Web Access")
+            expanded: false
+            Layout.fillWidth: true
+
+            Kirigami.FormLayout {
+                width: parent.width
+
+                QQC2.CheckBox {
+                    id: webserverEnabled
+
+                    Kirigami.FormData.label: i18n("Local Web Server:")
+                    text: i18n("Enable Mobile Access (Access via Local Network)")
+                }
+
+                QQC2.SpinBox {
+                    id: webserverPort
+
+                    Kirigami.FormData.label: i18n("Server Port:")
+                    from: 1024
+                    to: 65535
+                    stepSize: 1
+                    editable: true
+                    Component.onCompleted: value = plasmoid.configuration.webserverPort || 8080
+                    onValueModified: plasmoid.configuration.webserverPort = value
+                }
+
+                QQC2.TextField {
+                    id: webserverTokenField
+
+                    Kirigami.FormData.label: i18n("Access Passcode:")
+                    text: scrollRoot.cfg_webserverToken
+                    readOnly: true
+                    selectByMouse: true
+                    placeholderText: "token"
+                    Layout.fillWidth: true
+
+                    QQC2.Button {
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        icon.name: "edit-clear"
+                        text: i18n("Regenerate")
+                        onClicked: {
+                            var chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+                            var token = "";
+                            for (var k = 0; k < 6; k++) {
+                                token += chars.charAt(Math.floor(Math.random() * chars.length));
+                            }
+                            scrollRoot.cfg_webserverToken = token;
+                            plasmoid.configuration.webserverToken = token;
+                        }
+                    }
+                }
+
+                QQC2.Label {
+                    visible: webserverEnabled.checked
+                    font.italic: true
+                    font.pixelSize: Kirigami.Theme.smallFont.pixelSize
+                    color: Kirigami.Theme.highlightColor
+                    text: i18n("Access on your mobile device at: ") + "http://" + scrollRoot._localIpAddress + ":" + webserverPort.value + "?token=" + scrollRoot.cfg_webserverToken
+                    wrapMode: Text.Wrap
+                    Layout.fillWidth: true
+                }
+            }
+        }
     }
 
 }

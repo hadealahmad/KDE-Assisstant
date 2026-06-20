@@ -45,7 +45,14 @@ RowLayout {
             placeholderText: "Type a message… (Enter to send, Shift+Enter for newline)"
             wrapMode: TextEdit.Wrap
             enabled: !root.isStreaming
-            background: null
+            // Subtle themed field background so the input reads as an editable
+            // control instead of blending into the page.
+            background: Rectangle {
+                color: Kirigami.Theme.alternateBackgroundColor
+                border.color: inputArea.activeFocus ? Kirigami.Theme.highlightColor : Kirigami.Theme.disabledTextColor
+                border.width: 1
+                radius: Kirigami.Units.smallSpacing
+            }
             Keys.onReturnPressed: function(event) {
                 if (event.modifiers & Qt.ShiftModifier) {
                     event.accepted = false;
@@ -67,12 +74,17 @@ RowLayout {
 
             icon.name: "mail-attachment"
             enabled: !root.isStreaming
-            onClicked: root.attachRequested()
-
-            PlasmaComponents.ToolTip {
-                text: "Attach file"
+            onClicked: {
+                fullRepRoot.hideToolTip();
+                root.attachRequested();
             }
-
+            onHoveredChanged: {
+                if (hovered) {
+                    fullRepRoot.showToolTip(attachButton, "Attach file");
+                } else {
+                    fullRepRoot.hideToolTip();
+                }
+            }
         }
 
         // Speech-to-Text Button
@@ -83,39 +95,56 @@ RowLayout {
             checked: root.isRecording
             checkable: true
             visible: root.sttBackend !== "disabled"
-            onClicked: root.micToggleRequested()
-
-            PlasmaComponents.ToolTip {
-                text: root.sttErrorText.length > 0 ? "Error: " + root.sttErrorText : (root.isRecording ? "Recording... Click to Stop & Transcribe" : "Voice Typing (Speech-to-Text)")
+            onClicked: {
+                fullRepRoot.hideToolTip();
+                root.micToggleRequested();
             }
-
+            onHoveredChanged: {
+                if (hovered) {
+                    var tooltipText = root.sttErrorText.length > 0 ? "Error: " + root.sttErrorText : (root.isRecording ? "Recording... Click to Stop & Transcribe" : "Voice Typing (Speech-to-Text)");
+                    fullRepRoot.showToolTip(micBtn, tooltipText);
+                } else {
+                    fullRepRoot.hideToolTip();
+                }
+            }
         }
 
         // Send button
         PlasmaComponents.ToolButton {
             id: sendButton
 
-            icon.name: "go-next"
+            icon.name: "document-send"
             enabled: !root.isStreaming && (inputArea.text.trim().length > 0 || root.hasAttachments)
-            onClicked: root.sendRequested()
-
-            PlasmaComponents.ToolTip {
-                text: "Send (Enter)"
+            onClicked: {
+                fullRepRoot.hideToolTip();
+                root.sendRequested();
             }
-
+            onHoveredChanged: {
+                if (hovered) {
+                    fullRepRoot.showToolTip(sendButton, "Send (Enter)");
+                } else {
+                    fullRepRoot.hideToolTip();
+                }
+            }
         }
 
         // Stop button
         PlasmaComponents.ToolButton {
+            id: stopButton
             icon.name: "media-playback-stop"
             enabled: root.isStreaming
             visible: root.isStreaming
-            onClicked: root.stopRequested()
-
-            PlasmaComponents.ToolTip {
-                text: "Stop generating"
+            onClicked: {
+                fullRepRoot.hideToolTip();
+                root.stopRequested();
             }
-
+            onHoveredChanged: {
+                if (hovered) {
+                    fullRepRoot.showToolTip(stopButton, "Stop generating");
+                } else {
+                    fullRepRoot.hideToolTip();
+                }
+            }
         }
 
     }

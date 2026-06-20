@@ -7,6 +7,7 @@ import QtQuick
 import QtQuick.Controls as Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
+import org.kde.plasma.components as PlasmaComponents
 
 RowLayout {
     id: root
@@ -70,13 +71,21 @@ RowLayout {
     }
 
     Controls.ToolButton {
+        id: viewButton
         icon.name: "view-task"
         display: Controls.AbstractButton.IconOnly
         flat: true
-        Controls.ToolTip.text: "Open Tasks"
-        Controls.ToolTip.delay: Kirigami.Units.toolTipDelay
-        Controls.ToolTip.visible: hovered
-        onClicked: root.viewTasksRequested()
+        onClicked: {
+            fullRepRoot.hideToolTip();
+            root.viewTasksRequested();
+        }
+        onHoveredChanged: {
+            if (hovered) {
+                fullRepRoot.showToolTip(viewButton, "Open Tasks");
+            } else {
+                fullRepRoot.hideToolTip();
+            }
+        }
     }
 
 }

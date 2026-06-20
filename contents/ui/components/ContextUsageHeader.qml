@@ -29,6 +29,14 @@ RowLayout {
         Layout.fillWidth: true
     }
 
+    Controls.ProgressBar {
+        Layout.preferredWidth: Kirigami.Units.gridUnit * 4
+        value: root.contextUsagePercent / 100
+        from: 0
+        to: 1
+        scale: 0.5
+    }
+
     Controls.Label {
         text: {
             var used = root.contextUsedChars;

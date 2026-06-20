@@ -93,3 +93,28 @@ Since the Web UI and the Plasmoid are completely separate processes, KDE Assista
 3. **Reactive Reloading:**
    - If the database query indicates that a count or timestamp has changed, QML automatically refreshes its local list models (`chatMessageModel`, `chatSessionModel`, `memoryModel`, `taskModel`).
    - This ensures that messages sent or settings modified on mobile immediately appear on the desktop screen.
+
+---
+
+## 5. Focus & Tooltip Window Activation Stability (Wayland Workarounds)
+
+To prevent the Plasmoid popup window from deactivating and closing automatically (a common bug in Wayland and KWin environments when widgets lose activation/focus), KDE Assistant implements two system-level workarounds:
+
+### Custom Inline Tooltips
+- **Problem:** Standard QQC2/Plasma tooltips spawn separate `xdg_popup` top-level windows. When hovered, focus is grabbed by the tooltip window, deactivating the main Plasmoid popup and triggering `hideOnWindowDeactivate: true` which auto-closes it.
+- **Solution:** Tooltips are rendered as a single, global inline `Rectangle` (`globalToolTip`) declared at the root level of `FullRepresentation.qml`.
+- **Positioning:** Interactive controls call `fullRepRoot.showToolTip(controlID, "text")` on hover. The popup maps the control's local coordinates to the root window using `mapToItem(fullRepRoot, 0, 0)` and positions the tooltip inline, remaining in the same window context.
+
+### Offscreen Focus Keep-Alives
+- **Problem:** Switching views (History, Memories, Tasks pages) hides the `ChatPage`, which contains the active `TextArea`. With no text input element visible on the active view, the window's `activeFocusItem` becomes null, causing KWin to deactivate and auto-close the popup upon any pointer hover/interaction.
+- **Solution:** Each sub-page component contains an offscreen focus helper (`focusHelper` which is a `Controls.TextField` located at `x: -100`, `y: -100` with dimensions `10x10`, `opacity: 0`, and `readOnly: true`).
+- **Propagation:** Calling `forceActiveFocus()` on a subpage delegates keyboard active focus to its respective `focusHelper`, ensuring the window maintains an active text input focus grab in the eyes of the window manager.
+
+---
+
+## 6. Layout & Overlay Architecture
+
+To keep the QML rendering engine efficient and prevent runtime layout warnings/errors, page layouts and modal confirmation dialogues follow a strict hierarchy:
+
+- **Root Item Sibling Pattern:** Pages containing full-screen modal overlays (e.g. `ConfirmOverlay` for deleting items) use a base `Item` as their root rather than a `ColumnLayout` or `RowLayout`.
+- **Layout Partitioning:** Inside the root `Item`, the main scrollable elements are enclosed in a child `ColumnLayout` filling the parent, while overlay components (like `ConfirmOverlay` and `DropArea`) reside as siblings to the layout, anchored directly to the root `Item`. This prevents layout engines from attempting to position and scale overlay bounds, maintaining clean rendering behavior.

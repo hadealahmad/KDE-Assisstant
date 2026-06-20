@@ -91,56 +91,26 @@ Item {
         spacing: 0
 
         // ── Header ───────────────────────────────────────────────
+        // Primary actions stay inline; secondary ones move into the overflow menu
+        // to keep the header readable on a narrow panel.
         PageHeader {
             showBackButton: false
             title: chatPageRoot.currentSessionTitle
+            showPinButton: true
+            pinned: chatPageRoot.keepOpen
+            menu: overflowMenu
+            onPinClicked: chatPageRoot.togglePin()
             actionButtons: [{
-                "icon": "chronometer",
-                "tooltip": "Chat History",
-                "onClicked": function() {
-                    chatPageRoot.toggleHistory();
-                }
-            }, {
                 "icon": "list-add",
                 "tooltip": "New Chat",
                 "onClicked": function() {
                     chatPageRoot.startNewSession();
                 }
             }, {
-                "icon": "edit-copy",
-                "tooltip": "Copy Conversation",
+                "icon": "chronometer",
+                "tooltip": "Chat History",
                 "onClicked": function() {
-                    chatPageRoot.copyConversation();
-                }
-            }, {
-                "icon": "view-task",
-                "tooltip": "Tasks",
-                "onClicked": function() {
-                    chatPageRoot.toggleTasks();
-                }
-            }, {
-                "icon": "view-list-text",
-                "tooltip": "Memories (" + chatPageRoot.memoryCount + ")",
-                "onClicked": function() {
-                    chatPageRoot.toggleMemories();
-                }
-            }, {
-                "icon": chatPageRoot.webserverEnabled ? "network-server" : "network-offline",
-                "tooltip": chatPageRoot.webserverEnabled ? "Mobile Integration (Active)" : "Mobile Integration (Stopped)",
-                "onClicked": function() {
-                    chatPageRoot.mobilePanelVisible = true;
-                }
-            }, {
-                "icon": "configure",
-                "tooltip": "Settings",
-                "onClicked": function() {
-                    chatPageRoot.openSettings();
-                }
-            }, {
-                "icon": chatPageRoot.keepOpen ? "window-unpin" : "window-pin",
-                "tooltip": chatPageRoot.keepOpen ? "Unpin (auto-close)" : "Pin (keep open)",
-                "onClicked": function() {
-                    chatPageRoot.togglePin();
+                    chatPageRoot.toggleHistory();
                 }
             }]
         }
@@ -316,42 +286,42 @@ Item {
             onStopRequested: chatPageRoot.stopStreaming()
         }
 
-        // Drag-and-drop overlay on chat area
-        DropArea {
-            anchors.fill: chatList
-            keys: ["text/uri-list"]
-            onEntered: function(drag) {
-                dropOverlay.visible = true;
-            }
-            onExited: {
-                dropOverlay.visible = false;
-            }
-            onDropped: function(drop) {
-                dropOverlay.visible = false;
-                if (drop.hasUrls)
-                    chatPageRoot.filesDropped(drop.urls);
+    }
 
-            }
+    // Drag-and-drop overlay on chat area
+    DropArea {
+        anchors.fill: chatList
+        keys: ["text/uri-list"]
+        onEntered: function(drag) {
+            dropOverlay.visible = true;
+        }
+        onExited: {
+            dropOverlay.visible = false;
+        }
+        onDropped: function(drop) {
+            dropOverlay.visible = false;
+            if (drop.hasUrls)
+                chatPageRoot.filesDropped(drop.urls);
 
-            Rectangle {
-                id: dropOverlay
+        }
 
-                visible: false
-                anchors.fill: parent
-                color: Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g, Kirigami.Theme.highlightColor.b, 0.1)
-                border.color: Kirigami.Theme.highlightColor
-                border.width: 2
-                radius: Kirigami.Units.smallSpacing
-                z: 100
+        Rectangle {
+            id: dropOverlay
 
-                Kirigami.PlaceholderMessage {
-                    anchors.centerIn: parent
-                    width: parent.width - Kirigami.Units.gridUnit * 4
-                    icon.name: "mail-attachment"
-                    text: "Drop files to attach"
-                    explanation: "Text files will be read inline. Images and PDFs will be sent to the model."
-                }
+            visible: false
+            anchors.fill: parent
+            color: Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g, Kirigami.Theme.highlightColor.b, 0.1)
+            border.color: Kirigami.Theme.highlightColor
+            border.width: 2
+            radius: Kirigami.Units.smallSpacing
+            z: 100
 
+            Kirigami.PlaceholderMessage {
+                anchors.centerIn: parent
+                width: parent.width - Kirigami.Units.gridUnit * 4
+                icon.name: "mail-attachment"
+                text: "Drop files to attach"
+                explanation: "Text files will be read inline. Images and PDFs will be sent to the model."
             }
 
         }
@@ -369,6 +339,45 @@ Item {
         webserverEnabled: chatPageRoot.webserverEnabled
         onToggleWebserver: chatPageRoot.toggleWebserver()
         onCloseRequested: chatPageRoot.mobilePanelVisible = false
+    }
+
+    // ── Overflow menu for secondary actions ───────────────────
+    // Keeps rarely-used features one click away without crowding the header.
+    PlasmaComponents.Menu {
+        id: overflowMenu
+
+        PlasmaComponents.MenuItem {
+            icon.name: "edit-copy"
+            text: "Copy Conversation"
+            onClicked: chatPageRoot.copyConversation()
+        }
+
+        PlasmaComponents.MenuItem {
+            icon.name: "view-task"
+            text: "Tasks"
+            onClicked: chatPageRoot.toggleTasks()
+        }
+
+        PlasmaComponents.MenuItem {
+            icon.name: "view-list-text"
+            // Surface the memory count inline instead of hiding it in a tooltip.
+            text: chatPageRoot.memoryCount > 0 ? "Memories (" + chatPageRoot.memoryCount + ")" : "Memories"
+            onClicked: chatPageRoot.toggleMemories()
+        }
+
+        PlasmaComponents.MenuSeparator {}
+
+        PlasmaComponents.MenuItem {
+            icon.name: chatPageRoot.webserverEnabled ? "network-server" : "network-offline"
+            text: chatPageRoot.webserverEnabled ? "Mobile Integration (Active)" : "Mobile Integration"
+            onClicked: chatPageRoot.mobilePanelVisible = true
+        }
+
+        PlasmaComponents.MenuItem {
+            icon.name: "configure"
+            text: "Settings"
+            onClicked: chatPageRoot.openSettings()
+        }
     }
 
 }

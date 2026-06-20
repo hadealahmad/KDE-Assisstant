@@ -667,6 +667,34 @@ Item {
 
     }
 
+    function showToolTip(targetItem, text) {
+        if (!text || text.trim() === "") {
+            globalToolTip.visible = false;
+            return;
+        }
+        globalToolTip.text = text;
+        var pos = targetItem.mapToItem(fullRepRoot, 0, 0);
+        var targetCenterX = pos.x + targetItem.width / 2;
+        var tooltipWidth = globalToolTip.implicitWidth;
+        var tooltipHeight = globalToolTip.implicitHeight;
+        
+        globalToolTip.x = Math.max(Kirigami.Units.smallSpacing, Math.min(fullRepRoot.width - tooltipWidth - Kirigami.Units.smallSpacing, targetCenterX - tooltipWidth / 2));
+        
+        var spacing = 4;
+        if (pos.y - tooltipHeight - spacing >= 0) {
+            globalToolTip.y = pos.y - tooltipHeight - spacing;
+        } else {
+            globalToolTip.y = pos.y + targetItem.height + spacing;
+        }
+        globalToolTip.opacity = 1.0;
+        globalToolTip.visible = true;
+    }
+
+    function hideToolTip() {
+        globalToolTip.visible = false;
+        globalToolTip.opacity = 0;
+    }
+
     function _syncChatMessages() {
         var arr = [];
         for (var i = 0; i < chatMessageModel.count; i++) {
@@ -1081,9 +1109,17 @@ Item {
 
     Connections {
         function onExpandedChanged() {
-            if (root.expanded)
-                chatPage.forceActiveFocus();
-
+            if (root.expanded) {
+                if (mainStack.currentIndex === 0) {
+                    chatPage.forceActiveFocus();
+                } else if (mainStack.currentIndex === 1) {
+                    historyPage.forceActiveFocus();
+                } else if (mainStack.currentIndex === 2) {
+                    memoriesPage.forceActiveFocus();
+                } else if (mainStack.currentIndex === 3) {
+                    tasksPage.forceActiveFocus();
+                }
+            }
         }
 
         target: root
@@ -1095,9 +1131,17 @@ Item {
         anchors.fill: parent
         currentIndex: tasksViewActive ? 3 : memoriesViewActive ? 2 : historyViewActive ? 1 : 0
         onCurrentIndexChanged: {
-            if (currentIndex === 0)
+            fullRepRoot.hideToolTip();
+            if (currentIndex === 0) {
                 chatPage.positionViewAtEnd();
-
+                chatPage.forceActiveFocus();
+            } else if (currentIndex === 1) {
+                historyPage.forceActiveFocus();
+            } else if (currentIndex === 2) {
+                memoriesPage.forceActiveFocus();
+            } else if (currentIndex === 3) {
+                tasksPage.forceActiveFocus();
+            }
         }
 
         // PAGE 0: Chat Interface
@@ -1223,6 +1267,7 @@ Item {
         height: 0
         opacity: 0
         activeFocusOnPress: false
+        readOnly: true
     }
 
     FileDialog {
@@ -1359,6 +1404,31 @@ Item {
                 }
             }
         }
+    }
+
+    Rectangle {
+        id: globalToolTip
+        visible: false
+        color: Kirigami.Theme.alternateBackgroundColor
+        border.color: Kirigami.Theme.disabledTextColor
+        border.width: 1
+        radius: Kirigami.Units.smallSpacing / 2
+        z: 99999
+        opacity: 0
+
+        property alias text: toolTipText.text
+
+        implicitWidth: toolTipText.implicitWidth + Kirigami.Units.gridUnit * 1.2
+        implicitHeight: toolTipText.implicitHeight + Kirigami.Units.smallSpacing * 2
+
+        Controls.Label {
+            id: toolTipText
+            anchors.centerIn: parent
+            font.pointSize: Kirigami.Theme.smallFont.pointSize
+            color: Kirigami.Theme.textColor
+        }
+
+        Behavior on opacity { NumberAnimation { duration: 100 } }
     }
 
 }

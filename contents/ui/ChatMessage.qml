@@ -9,6 +9,7 @@ import QtQuick.Controls as Controls
 import QtQuick.Layouts
 import "components" as Components
 import org.kde.kirigami as Kirigami
+import org.kde.plasma.components as PlasmaComponents
 
 Kirigami.AbstractCard {
     id: root
@@ -134,16 +135,23 @@ Kirigami.AbstractCard {
         icon.name: "edit-copy-symbolic"
         display: Controls.AbstractButton.IconOnly
         text: "Copy"
-        visible: cardHoverHandler.hovered && root.cleanMessageText !== ""
+        visible: root.cleanMessageText !== ""
+        opacity: cardHoverHandler.hovered ? 1.0 : 0.4
+        Behavior on opacity { NumberAnimation { duration: Kirigami.Units.shortDuration } }
         flat: true
         onClicked: {
+            fullRepRoot.hideToolTip();
             messageContent.selectAll();
             messageContent.copy();
             messageContent.deselect();
         }
-        Controls.ToolTip.text: "Copy message"
-        Controls.ToolTip.delay: Kirigami.Units.toolTipDelay
-        Controls.ToolTip.visible: hovered
+        onHoveredChanged: {
+            if (hovered) {
+                fullRepRoot.showToolTip(copyButton, "Copy message");
+            } else {
+                fullRepRoot.hideToolTip();
+            }
+        }
     }
 
     Controls.ToolButton {
@@ -155,17 +163,24 @@ Kirigami.AbstractCard {
         icon.name: (fullRepRoot.isSpeaking && fullRepRoot.currentlySpokenText === root.cleanMessageText) ? "media-playback-stop" : "audio-volume-high"
         display: Controls.AbstractButton.IconOnly
         text: (fullRepRoot.isSpeaking && fullRepRoot.currentlySpokenText === root.cleanMessageText) ? "Stop Reading" : "Read Aloud"
-        visible: (cardHoverHandler.hovered || (fullRepRoot.isSpeaking && fullRepRoot.currentlySpokenText === root.cleanMessageText)) && root.cleanMessageText !== "" && !root.isUser && !root.isError && !root.isApproval && !root.isCommand && !root.isMemory && !root.isTask
+        visible: root.cleanMessageText !== "" && !root.isUser && !root.isError && !root.isApproval && !root.isCommand && !root.isMemory && !root.isTask
+        opacity: (cardHoverHandler.hovered || (fullRepRoot.isSpeaking && fullRepRoot.currentlySpokenText === root.cleanMessageText)) ? 1.0 : 0.4
+        Behavior on opacity { NumberAnimation { duration: Kirigami.Units.shortDuration } }
         flat: true
         onClicked: {
+            fullRepRoot.hideToolTip();
             if (fullRepRoot.isSpeaking && fullRepRoot.currentlySpokenText === root.cleanMessageText)
                 root.stopSpeakRequested();
             else
                 root.speakRequested(root.cleanMessageText);
         }
-        Controls.ToolTip.text: text
-        Controls.ToolTip.delay: Kirigami.Units.toolTipDelay
-        Controls.ToolTip.visible: hovered
+        onHoveredChanged: {
+            if (hovered) {
+                fullRepRoot.showToolTip(speakButton, speakButton.text);
+            } else {
+                fullRepRoot.hideToolTip();
+            }
+        }
     }
 
     // Subtle tint to distinguish user vs assistant bubbles

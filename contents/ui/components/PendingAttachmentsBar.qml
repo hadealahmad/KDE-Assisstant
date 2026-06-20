@@ -8,8 +8,9 @@ import QtQuick
 import QtQuick.Controls as Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
+import org.kde.plasma.components as PlasmaComponents
 
-RowLayout {
+Flow {
     id: root
 
     property var pendingAttachments: []
@@ -28,8 +29,8 @@ RowLayout {
         delegate: Rectangle {
             property var attachmentData: root.pendingAttachments[index]
 
-            Layout.preferredWidth: attRow.implicitWidth + Kirigami.Units.smallSpacing * 4
-            Layout.preferredHeight: Kirigami.Units.gridUnit * 3
+            width: attRow.implicitWidth + Kirigami.Units.smallSpacing * 4
+            height: Kirigami.Units.gridUnit * 3
             radius: Kirigami.Units.smallSpacing
             color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.05)
             border.color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.15)
@@ -68,12 +69,20 @@ RowLayout {
                 }
 
                 Controls.ToolButton {
+                    id: cancelButton
                     icon.name: "dialog-cancel"
                     flat: true
-                    onClicked: root.removeRequested(index)
-                    Controls.ToolTip.text: "Remove attachment"
-                    Controls.ToolTip.delay: Kirigami.Units.toolTipDelay
-                    Controls.ToolTip.visible: hovered
+                    onClicked: {
+                        fullRepRoot.hideToolTip();
+                        root.removeRequested(index);
+                    }
+                    onHoveredChanged: {
+                        if (hovered) {
+                            fullRepRoot.showToolTip(cancelButton, "Remove attachment");
+                        } else {
+                            fullRepRoot.hideToolTip();
+                        }
+                    }
                 }
 
             }

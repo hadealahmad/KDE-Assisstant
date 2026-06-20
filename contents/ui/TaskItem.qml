@@ -103,27 +103,51 @@ Kirigami.AbstractCard {
             }
 
             PlasmaComponents.ToolButton {
+                id: detailsButton
                 icon.name: root.expanded ? "go-up" : "go-down"
-                onClicked: root.toggleExpanded(root.taskData.id)
-                Controls.ToolTip.text: "Details"
-                Controls.ToolTip.delay: Kirigami.Units.toolTipDelay
-                Controls.ToolTip.visible: hovered
+                onClicked: {
+                    fullRepRoot.hideToolTip();
+                    root.toggleExpanded(root.taskData.id);
+                }
+                onHoveredChanged: {
+                    if (hovered) {
+                        fullRepRoot.showToolTip(detailsButton, "Details");
+                    } else {
+                        fullRepRoot.hideToolTip();
+                    }
+                }
             }
 
             PlasmaComponents.ToolButton {
+                id: editButton
                 icon.name: "document-edit"
-                onClicked: root.editRequested(root.taskData.id)
-                Controls.ToolTip.text: "Edit"
-                Controls.ToolTip.delay: Kirigami.Units.toolTipDelay
-                Controls.ToolTip.visible: hovered
+                onClicked: {
+                    fullRepRoot.hideToolTip();
+                    root.editRequested(root.taskData.id);
+                }
+                onHoveredChanged: {
+                    if (hovered) {
+                        fullRepRoot.showToolTip(editButton, "Edit");
+                    } else {
+                        fullRepRoot.hideToolTip();
+                    }
+                }
             }
 
             PlasmaComponents.ToolButton {
+                id: deleteButton
                 icon.name: "edit-delete"
-                onClicked: root.deleteRequested(root.taskData.id)
-                Controls.ToolTip.text: "Delete"
-                Controls.ToolTip.delay: Kirigami.Units.toolTipDelay
-                Controls.ToolTip.visible: hovered
+                onClicked: {
+                    fullRepRoot.hideToolTip();
+                    root.deleteRequested(root.taskData.id);
+                }
+                onHoveredChanged: {
+                    if (hovered) {
+                        fullRepRoot.showToolTip(deleteButton, "Delete");
+                    } else {
+                        fullRepRoot.hideToolTip();
+                    }
+                }
             }
         }
 

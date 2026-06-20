@@ -10,10 +10,11 @@ import org.kde.plasma.components as PlasmaComponents
 import org.kde.kirigami as Kirigami
 
 import "../code/Database.js" as Db
+import "components" as Components
 
-ColumnLayout {
+Item {
     id: memoriesPageRoot
-    spacing: 0
+    focus: true
 
     property var db: null
     property var memories: []
@@ -29,92 +30,148 @@ ColumnLayout {
 
     Component.onCompleted: reload()
 
-    // Header
-    PageHeader {
-        title: "Memories"
-        onBackClicked: memoriesPageRoot.backClicked()
-        actionButtons: [
-            { icon: "edit-clear-all", tooltip: "Clear all memories", enabled: memoriesPageRoot.memories.length > 0, onClicked: function() {
-                memoriesPageRoot.clearAllMemories();
-            }}
-        ]
+    Controls.TextField {
+        id: focusHelper
+        visible: true
+        x: -100
+        y: -100
+        width: 10
+        height: 10
+        opacity: 0
+        activeFocusOnPress: false
+        readOnly: true
     }
 
-    Kirigami.Separator {
-        Layout.fillWidth: true
+    function forceActiveFocus() {
+        focusHelper.forceActiveFocus();
     }
 
-    // Memory list
-    ListView {
-        id: memoryListView
-        Layout.fillWidth: true
-        Layout.fillHeight: true
-        clip: true
-        model: memoriesPageRoot.memories
-        spacing: Kirigami.Units.smallSpacing
-        topMargin: Kirigami.Units.smallSpacing
-        bottomMargin: Kirigami.Units.smallSpacing
-        leftMargin: Kirigami.Units.smallSpacing
-        rightMargin: Kirigami.Units.smallSpacing
+    ColumnLayout {
+        anchors.fill: parent
+        spacing: 0
 
-        Controls.ScrollBar.vertical: Controls.ScrollBar {
-            policy: Controls.ScrollBar.AsNeeded
-            visible: memoryListView.contentHeight > memoryListView.height
-        }
-        Controls.ScrollBar.horizontal: Controls.ScrollBar {
-            policy: Controls.ScrollBar.AlwaysOff
-            visible: false
+        // Header
+        PageHeader {
+            title: "Memories"
+            onBackClicked: memoriesPageRoot.backClicked()
+            actionButtons: [
+                { icon: "edit-clear-all", tooltip: "Clear all memories", enabled: memoriesPageRoot.memories.length > 0, onClicked: function() {
+                    clearAllConfirm.open();
+                }}
+            ]
         }
 
-        Kirigami.PlaceholderMessage {
-            anchors.centerIn: parent
-            width: parent.width - Kirigami.Units.gridUnit * 4
-            visible: memoryListView.count === 0
-            icon.name: "view-list-text"
-            text: "No Memories Yet"
-            explanation: "Ask the assistant to remember something, or write personal notes in Settings."
+        Kirigami.Separator {
+            Layout.fillWidth: true
         }
 
-        delegate: Controls.ItemDelegate {
-            required property var modelData
-            required property int index
+        // Memory list
+        ListView {
+            id: memoryListView
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            clip: true
+            model: memoriesPageRoot.memories
+            spacing: Kirigami.Units.smallSpacing
+            topMargin: Kirigami.Units.smallSpacing
+            bottomMargin: Kirigami.Units.smallSpacing
+            leftMargin: Kirigami.Units.smallSpacing
+            rightMargin: Kirigami.Units.smallSpacing
 
-            width: memoryListView.width - memoryListView.leftMargin - memoryListView.rightMargin - Kirigami.Units.gridUnit * 1.5
-            padding: Kirigami.Units.smallSpacing
+            Controls.ScrollBar.vertical: Controls.ScrollBar {
+                policy: Controls.ScrollBar.AsNeeded
+                visible: memoryListView.contentHeight > memoryListView.height
+            }
+            Controls.ScrollBar.horizontal: Controls.ScrollBar {
+                policy: Controls.ScrollBar.AlwaysOff
+                visible: false
+            }
 
-            contentItem: RowLayout {
-                spacing: Kirigami.Units.smallSpacing
+            Kirigami.PlaceholderMessage {
+                anchors.centerIn: parent
+                width: parent.width - Kirigami.Units.gridUnit * 4
+                visible: memoryListView.count === 0
+                icon.name: "view-list-text"
+                text: "No Memories Yet"
+                explanation: "Ask the assistant to remember something, or write personal notes in Settings."
+            }
 
-                Kirigami.Icon {
-                    source: "view-list-text"
-                    Layout.preferredWidth: Kirigami.Units.iconSizes.small
-                    Layout.preferredHeight: Kirigami.Units.iconSizes.small
-                    color: Kirigami.Theme.positiveTextColor
-                }
+            delegate: Controls.ItemDelegate {
+                required property var modelData
+                required property int index
 
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: 2
-                    Controls.Label {
-                        text: modelData.content
-                        wrapMode: Text.WordWrap
+                width: memoryListView.width - memoryListView.leftMargin - memoryListView.rightMargin - Kirigami.Units.gridUnit * 1.5
+                padding: Kirigami.Units.smallSpacing
+
+                contentItem: RowLayout {
+                    spacing: Kirigami.Units.smallSpacing
+
+                    Kirigami.Icon {
+                        source: "view-list-text"
+                        Layout.preferredWidth: Kirigami.Units.iconSizes.small
+                        Layout.preferredHeight: Kirigami.Units.iconSizes.small
+                        color: Kirigami.Theme.positiveTextColor
+                    }
+
+                    ColumnLayout {
                         Layout.fillWidth: true
+                        spacing: 2
+                        Controls.Label {
+                            text: modelData.content
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                            font.pointSize: Kirigami.Theme.defaultFont.pointSize
+                        }
+                        Controls.Label {
+                            text: "Remembered: " + Qt.formatDateTime(new Date(modelData.created_at), "dd MMM yyyy, hh:mm")
+                            font.pointSize: Kirigami.Theme.smallFont.pointSize
+                            color: Kirigami.Theme.disabledTextColor
+                            Layout.fillWidth: true
+                        }
                     }
-                    Controls.Label {
-                        text: Qt.formatDateTime(new Date(modelData.created_at), "dd MMM yyyy, hh:mm")
-                        font.pointSize: Kirigami.Theme.smallFont.pointSize
-                        color: Kirigami.Theme.disabledTextColor
-                    }
-                }
 
-                PlasmaComponents.ToolButton {
-                    icon.name: "edit-delete"
-                    onClicked: memoriesPageRoot.deleteMemory(modelData.id)
-                    PlasmaComponents.ToolTip {
-                        text: "Forget this"
+                    PlasmaComponents.ToolButton {
+                        id: deleteButton
+                        icon.name: "edit-delete"
+                        onClicked: {
+                            fullRepRoot.hideToolTip();
+                            forgetConfirm.open({"id": modelData.id});
+                        }
+                        onHoveredChanged: {
+                            if (hovered) {
+                                fullRepRoot.showToolTip(deleteButton, "Forget this");
+                            } else {
+                                fullRepRoot.hideToolTip();
+                            }
+                        }
                     }
                 }
             }
         }
+    }
+
+    // ── Per-memory deletion confirmation ─────────────────────
+    Components.ConfirmOverlay {
+        id: forgetConfirm
+
+        title: "Forget this memory?"
+        confirmText: "Forget"
+        confirmIcon: "edit-delete"
+        destructive: true
+        onConfirmed: function(ctx) {
+            memoriesPageRoot.deleteMemory(ctx.id);
+        }
+    }
+
+    // ── Clear-all confirmation ───────────────────────────────
+    Components.ConfirmOverlay {
+        id: clearAllConfirm
+
+        title: "Clear ALL memories?"
+        message: "Every saved memory will be permanently removed. This cannot be undone."
+        confirmText: "Clear All"
+        confirmIcon: "edit-clear-all"
+        destructive: true
+        onConfirmed: memoriesPageRoot.clearAllMemories()
     }
 }
