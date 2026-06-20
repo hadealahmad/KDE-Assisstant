@@ -10,7 +10,8 @@ import urllib.parse
 import time
 import subprocess
 import datetime
-from http.server import BaseHTTPRequestHandler, HTTPServer
+import shlex
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # Gregorian to Julian Day Number (JDN)
 def gregorian_to_jdn(year, month, day):
@@ -157,6 +158,23 @@ def parse_command_tag(text):
     sys_match = re.search(r'\[system:\s*([^\]]+)\]', clean, re.IGNORECASE)
     if sys_match:
         return {"type": "system", "command": sys_match.group(1).strip()}
+        
+    opencode_match = re.search(r'\[opencode:\s*([^\]]+)\]', clean, re.IGNORECASE)
+    if opencode_match:
+        raw = opencode_match.group(1).strip()
+        files_match = re.search(r'\bfiles="([^"]+)"', raw, re.IGNORECASE)
+        model_match = re.search(r'\bmodel="([^"]+)"', raw, re.IGNORECASE)
+        instruction_end = re.search(r'\s+(?:files|model)=', raw, re.IGNORECASE)
+        if instruction_end:
+            instruction = raw[:instruction_end.start()].strip()
+        else:
+            instruction = raw
+        return {
+            "type": "opencode",
+            "instruction": instruction,
+            "files": files_match.group(1) if files_match else "",
+            "model": model_match.group(1) if model_match else ""
+        }
         
     grep_match = re.search(r'\[grep:\s*"([^"]+)"\s*"([^"]+)"\]', clean, re.IGNORECASE) or \
                  re.search(r'\[grep:\s*([^\s\]]+)\s*([^\s\]]+)\]', clean, re.IGNORECASE)
@@ -606,6 +624,20 @@ class WebServerHandler(BaseHTTPRequestHandler):
                     
                     cursor.execute("INSERT INTO messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)",
                                    (f"msg_assistant_{assistant_now}_text", session_id, "assistant", clean_response, assistant_now + 1))
+                elif cmd_tag["type"] == "opencode":
+                    instruction = cmd_tag["instruction"]
+                    files = cmd_tag["files"]
+                    model = cmd_tag["model"]
+                    clean_response = re.sub(r'\[opencode:\s*[\s\S]+?\]', '', full_response, flags=re.IGNORECASE).strip()
+                    if not clean_response:
+                        clean_response = f"Requested OpenCode run: {instruction}"
+                        
+                    op_data = json.dumps({"instruction": instruction, "files": files, "model": model})
+                    cursor.execute("INSERT INTO messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)",
+                                   (f"msg_opencode_{assistant_now}", session_id, "opencode_approval", op_data, assistant_now))
+                    
+                    cursor.execute("INSERT INTO messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)",
+                                   (f"msg_assistant_{assistant_now}_text", session_id, "assistant", clean_response, assistant_now + 1))
             else:
                 cursor.execute("INSERT INTO messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)",
                                (f"msg_assistant_{assistant_now}", session_id, "assistant", full_response, assistant_now))
@@ -645,7 +677,7 @@ class WebServerHandler(BaseHTTPRequestHandler):
             "   Use this to execute read-only CLI tools to inspect files, search directories, or check system status.\n" + \
             "   Format: `[SYSTEM: COMMAND]` (where COMMAND is the actual terminal command)\n" + \
             "   Approved commands: ls, find, cat, free -h, uname -a, df -h, uptime, lscpu, lsusb, lspci, ps aux, systemctl status <service>, pactl list, qdbus, dmesg | tail\n" + \
-            "   Examples: `[SYSTEM: ls -la /run/media/hadi/SSD2]`, `[SYSTEM: find /run/media/hadi/SSD2 -maxdepth 2 -iname \"*code*\"]`, `[SYSTEM: free -h]`, `[SYSTEM: cat ~/.config/kdeglobals]`\n" + \
+            "   Examples: `[SYSTEM: ls -la /run/media/hadi/SSD2]`, `[SYSTEM: ls -la \"/run/media/hadi/SSD2/Coding/KDE Assisstant/\"]` (always enclose paths containing spaces in double quotes!), `[SYSTEM: free -h]`, `[SYSTEM: cat ~/.config/kdeglobals]`\n" + \
             "   *Do not write `[SYSTEM: <command>]`.*\n\n" + \
             "4. Modifying KDE Settings / Configuration Changes:\n" + \
             "   Use this to request system settings changes (e.g. using `kwriteconfig6`). This displays an interactive card for user approval.\n" + \
@@ -659,7 +691,11 @@ class WebServerHandler(BaseHTTPRequestHandler):
             "   Use this when the user shares something important they want you to remember across future conversations (preferences, facts about themselves, project details, etc.).\n" + \
             "   Format: `[REMEMBER: fact to remember]`\n" + \
             "   Example: `[REMEMBER: User prefers Python over JavaScript]`, `[REMEMBER: Main project is located at /run/media/hadi/SSD2/Coding/KDE Assisstant]`\n" + \
-            "   *Only use this when the user explicitly asks you to remember something, or when they share clearly persistent personal information. Do not overuse it.*"
+            "   *Only use this when the user explicitly asks you to remember something, or when they share clearly persistent personal information. Do not overuse it.*\n\n" + \
+            "7. OpenCode Autonomous Coding Agent:\n" + \
+            "   Use this to request autonomous code refactoring, review, or implementation in the local workspace. OpenCode will run in the background and can modify or create files. Delegate complex coding tasks to OpenCode instead of trying to explain or write code snippets manually.\n" + \
+            "   Format: `[opencode: instruction files=\"file1,file2\" model=\"model_name\"]` (files and model are optional parameters, files must be a comma-separated list of relative or absolute paths)\n" + \
+            "   Examples: `[opencode: Add retry logic to API calls and update tests files=\"contents/code/ApiClient.js,contents/code/StreamingManager.js\"]`, `[opencode: Review this config for security issues files=\"contents/config/main.xml\"]`"
 
         # 4. Inject prayer times instructions
         lat = self.server.llm_args.get('prayer_latitude', '')
@@ -846,7 +882,23 @@ class WebServerHandler(BaseHTTPRequestHandler):
         except Exception:
             parsed = {"command": content_str, "status": "pending", "output": ""}
             
-        command = parsed.get("command", "")
+        if "instruction" in parsed:
+            inst = parsed.get("instruction", "")
+            files = parsed.get("files", "")
+            # Read client overridden model if present, otherwise fallback to parsed model
+            model = data.get("model") if data.get("model") is not None else parsed.get("model", "")
+            parsed["model"] = model
+            
+            command = "opencode run " + shlex.quote(inst) + " --dangerously-skip-permissions"
+            if files:
+                for f in files.split(','):
+                    f = f.strip()
+                    if f:
+                        command += " -f " + shlex.quote(f)
+            if model:
+                command += " --model " + shlex.quote(model)
+        else:
+            command = parsed.get("command", "")
         now = int(time.time() * 1000)
         
         if action == "decline":
@@ -868,13 +920,14 @@ class WebServerHandler(BaseHTTPRequestHandler):
         conn.commit()
         
         try:
-            result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
+            cmd_timeout = 300 if "instruction" in parsed else 30
+            result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=cmd_timeout)
             output = result.stdout
             if result.stderr:
                 output += "\n--- STDERR ---\n" + result.stderr
             status = "completed" if result.returncode == 0 else "error"
         except subprocess.TimeoutExpired:
-            output = "Command timed out after 30 seconds."
+            output = f"Command timed out after {cmd_timeout} seconds."
             status = "error"
         except Exception as e:
             output = f"Execution failed: {str(e)}"
@@ -916,7 +969,7 @@ def main():
     print(f"Database path: {db_path}")
     print(f"Static directory: {args.static_dir}")
     
-    server = HTTPServer(('0.0.0.0', args.port), WebServerHandler)
+    server = ThreadingHTTPServer(('0.0.0.0', args.port), WebServerHandler)
     server.token = args.token
     server.static_dir = os.path.abspath(args.static_dir)
     server.db_path = db_path

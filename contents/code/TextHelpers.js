@@ -36,6 +36,21 @@ function parseCommandTag(text) {
         return { type: "system", command: sysMatch[1].trim() };
     }
 
+    var opencodeMatch = clean.match(/\[opencode:\s*([^\]]+)\]/i);
+    if (opencodeMatch) {
+        var raw = opencodeMatch[1].trim();
+        var filesMatch = raw.match(/\bfiles="([^"]+)"/i);
+        var modelMatch = raw.match(/\bmodel="([^"]+)"/i);
+        var instructionParts = raw.split(/\s+(?:files|model)=/i);
+        var instruction = instructionParts[0].trim();
+        return {
+            type: "opencode",
+            instruction: instruction,
+            files: filesMatch ? filesMatch[1] : "",
+            model: modelMatch ? modelMatch[1] : ""
+        };
+    }
+
     var grepMatch = clean.match(/\[grep:\s*"([^"]+)"\s*"([^"]+)"\]/i) || clean.match(/\[grep:\s*([^\s\]]+)\s*([^\s\]]+)\]/i);
     if (grepMatch) {
         return { type: "grep", pattern: grepMatch[1], path: grepMatch[2] };
@@ -159,6 +174,9 @@ function createDefaultMessage(role, content) {
         taskTitle: "",
         taskGroupId: "",
         taskPriority: 0,
-        taskDueDate: ""
+        taskDueDate: "",
+        opencodeInstruction: "",
+        opencodeFiles: "",
+        opencodeModel: ""
     };
 }

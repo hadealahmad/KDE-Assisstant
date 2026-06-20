@@ -64,6 +64,10 @@ Item {
     property int activeAssistantIndex: -1
     property string activeWebserverCommand: ""
     property string localIpAddress: "127.0.0.1"
+    // ── OpenCode streaming state ─────────────────────────────────
+    property string opencodeLogFile: ""
+    property int opencodePollingAssistantIndex: -1
+    property bool opencodeRunning: false
 
     function insertTextIntoInput(text) {
         console.log("STT_QML: Inserting text: " + text);
@@ -79,8 +83,8 @@ Item {
         sttManager.toggleRecording(chatPage.inputText);
     }
 
-    function executeCommandLine(cmd, callback) {
-        commandRunner.execute(cmd, callback);
+    function executeCommandLine(cmd, callback, progressCallback) {
+        commandRunner.execute(cmd, callback, progressCallback);
     }
 
     function openFileInDolphin(filePath) {
@@ -379,6 +383,23 @@ Item {
             chatMessageModel.setProperty(assistantIndex, "approvalStatus", "pending");
             chatMessageModel.setProperty(assistantIndex, "approvalResult", "");
             chatPage.positionViewAtEnd();
+        } else if (cmdTag.type === "opencode") {
+            chatMessageModel.setProperty(assistantIndex, "role", "opencode_approval");
+            var op_content = JSON.stringify({
+                "instruction": cmdTag.instruction,
+                "files": cmdTag.files || "",
+                "model": cmdTag.model || ""
+            });
+            chatMessageModel.setProperty(assistantIndex, "content", op_content);
+            chatMessageModel.setProperty(assistantIndex, "opencodeInstruction", cmdTag.instruction);
+            chatMessageModel.setProperty(assistantIndex, "opencodeFiles", cmdTag.files || "");
+            chatMessageModel.setProperty(assistantIndex, "opencodeModel", cmdTag.model || "");
+            chatMessageModel.setProperty(assistantIndex, "approvalStatus", "pending");
+            chatMessageModel.setProperty(assistantIndex, "approvalResult", "");
+            var op_id = Db.saveMessage(db, currentSessionId, "opencode_approval", op_content);
+            chatMessageModel.setProperty(assistantIndex, "messageId", op_id);
+            loadSessionList();
+            chatPage.positionViewAtEnd();
         } else if (cmdTag.type === "remember") {
             var memContent = (cmdTag.content || "").trim();
             if (!memContent)
@@ -639,6 +660,139 @@ Item {
         resumeStreaming(updatedMessages);
     }
 
+    function approveOpenCode(instruction, files, model, assistantIndex) {
+        chatMessageModel.setProperty(assistantIndex, "approvalStatus", "running");
+        chatMessageModel.setProperty(assistantIndex, "opencodeModel", model);
+        chatMessageModel.setProperty(assistantIndex, "approvalResult", "");
+
+        // Write the "running" status to the database immediately
+        var messageId = chatMessageModel.get(assistantIndex).messageId;
+        if (messageId && messageId !== "") {
+            var runningJson = JSON.stringify({
+                "instruction": instruction,
+                "files": files || "",
+                "model": model || "",
+                "status": "running",
+                "output": ""
+            });
+            Db.updateMessageContent(db, messageId, runningJson);
+        }
+
+        // Build the opencode command
+        var innerCmd = "opencode run " + TextHelpers.escapeShellArg(instruction) + " --dangerously-skip-permissions";
+        if (files && files.trim() !== "") {
+            var list = files.split(",");
+            for (var i = 0; i < list.length; i++) {
+                var f = list[i].trim();
+                if (f)
+                    innerCmd += " -f " + TextHelpers.escapeShellArg(f);
+            }
+        }
+        if (model && model.trim() !== "")
+            innerCmd += " --model " + TextHelpers.escapeShellArg(model);
+
+        // Use a unique temp log file for this run so output can be tailed in real-time
+        var logFile = "/tmp/kde_opencode_" + Date.now() + ".log";
+        opencodeLogFile = logFile;
+        opencodePollingAssistantIndex = assistantIndex;
+        opencodeRunning = true;
+
+        // Wrap command: pipe both stdout+stderr through tee to logfile, then append EXIT sentinel
+        // Use script -q -c '...' /dev/null to force a PTY so opencode flushes output
+        var wrappedCmd = "bash -c " + TextHelpers.escapeShellArg(
+            "script -q -c " + TextHelpers.escapeShellArg(innerCmd) + " /dev/null 2>&1 | tee " +
+            TextHelpers.escapeShellArg(logFile) +
+            "; echo \"__OPENCODE_EXIT_$?__\" >> " + TextHelpers.escapeShellArg(logFile)
+        );
+
+        // Start the polling timer
+        opencodeStreamPoller.start();
+
+        // Execute the wrapped command (callback fires when process exits)
+        var opencodeCallback = function opencodeCallback(stdout, stderr, exitCode) {
+            // Stop polling
+            opencodeStreamPoller.stop();
+            opencodeRunning = false;
+
+            // Do one final read of the log file to get complete output
+            executeCommandLine("cat " + TextHelpers.escapeShellArg(logFile), function(logStdout, logStderr, logCode) {
+                var rawOutput = logStdout || "";
+                // Remove the sentinel line and extract exit code from it
+                var sentinelMatch = rawOutput.match(/__OPENCODE_EXIT_(\d+)__/);
+                var realExitCode = sentinelMatch ? parseInt(sentinelMatch[1]) : exitCode;
+                // Strip sentinel
+                var cleanOutput = rawOutput.replace(/__OPENCODE_EXIT_\d+__\n?/g, "");
+                // Strip all ANSI/VT100 escape sequences
+                cleanOutput = stripAnsiCodes(cleanOutput);
+                if (cleanOutput.trim() === "")
+                    cleanOutput = "(No output)";
+
+                var statusStr = realExitCode === 0 ? "done" : "failed";
+                chatMessageModel.setProperty(assistantIndex, "approvalStatus", statusStr);
+                chatMessageModel.setProperty(assistantIndex, "approvalResult", cleanOutput);
+
+                var mid = chatMessageModel.get(assistantIndex).messageId;
+                if (mid && mid !== "") {
+                    var updatedJson = JSON.stringify({
+                        "instruction": instruction,
+                        "files": files || "",
+                        "model": model || "",
+                        "status": statusStr,
+                        "output": cleanOutput
+                    });
+                    Db.updateMessageContent(db, mid, updatedJson);
+                }
+
+                var dbText;
+                if (realExitCode === 0)
+                    dbText = "✅ **OpenCode run completed successfully.**\n\nInstruction: `" + instruction + "`\n\n**Output:**\n```\n" + cleanOutput.trim() + "\n```";
+                else
+                    dbText = "❌ **OpenCode run failed (Exit code: " + realExitCode + ").**\n\nInstruction: `" + instruction + "`\n\n**Output:**\n```\n" + cleanOutput.trim() + "\n```";
+
+                Db.saveMessage(db, currentSessionId, "assistant", dbText);
+                loadSessionList();
+
+                // Clean up temp log file
+                executeCommandLine("rm -f " + TextHelpers.escapeShellArg(logFile));
+
+                var updatedMessages = buildMessageArray();
+                updatedMessages.push({
+                    "role": "system",
+                    "content": "OpenCode execution finished. Instruction: \"" + instruction + "\". Status: " + (realExitCode === 0 ? "Success" : "Failed") + ". Output:\n" + cleanOutput
+                });
+                resumeStreaming(updatedMessages);
+            });
+        };
+
+        executeCommandLine(wrappedCmd, opencodeCallback);
+    }
+
+    function declineOpenCode(instruction, assistantIndex) {
+        chatMessageModel.setProperty(assistantIndex, "approvalStatus", "declined");
+        var messageId = chatMessageModel.get(assistantIndex).messageId;
+        if (messageId && messageId !== "") {
+            var files = chatMessageModel.get(assistantIndex).opencodeFiles || "";
+            var model = chatMessageModel.get(assistantIndex).opencodeModel || "";
+            var updatedJson = JSON.stringify({
+                "instruction": instruction,
+                "files": files,
+                "model": model,
+                "status": "declined",
+                "output": ""
+            });
+            Db.updateMessageContent(db, messageId, updatedJson);
+        }
+        var text = "❌ OpenCode execution declined by user.";
+        Db.saveMessage(db, currentSessionId, "assistant", text);
+        loadSessionList();
+        var updatedMessages = buildMessageArray();
+        updatedMessages.push({
+            "role": "system",
+            "content": "OpenCode execution declined by user for instruction: \"" + instruction + "\"."
+        });
+        resumeStreaming(updatedMessages);
+    }
+
     function loadSessionList() {
         chatSessionModel.clear();
         var sessions = Db.loadSessions(db);
@@ -670,23 +824,20 @@ Item {
     function showToolTip(targetItem, text) {
         if (!text || text.trim() === "") {
             globalToolTip.visible = false;
-            return;
+            return ;
         }
         globalToolTip.text = text;
         var pos = targetItem.mapToItem(fullRepRoot, 0, 0);
         var targetCenterX = pos.x + targetItem.width / 2;
         var tooltipWidth = globalToolTip.implicitWidth;
         var tooltipHeight = globalToolTip.implicitHeight;
-        
         globalToolTip.x = Math.max(Kirigami.Units.smallSpacing, Math.min(fullRepRoot.width - tooltipWidth - Kirigami.Units.smallSpacing, targetCenterX - tooltipWidth / 2));
-        
         var spacing = 4;
-        if (pos.y - tooltipHeight - spacing >= 0) {
+        if (pos.y - tooltipHeight - spacing >= 0)
             globalToolTip.y = pos.y - tooltipHeight - spacing;
-        } else {
+        else
             globalToolTip.y = pos.y + targetItem.height + spacing;
-        }
-        globalToolTip.opacity = 1.0;
+        globalToolTip.opacity = 1;
         globalToolTip.visible = true;
     }
 
@@ -854,7 +1005,28 @@ Item {
                     content = "";
                 }
             }
+            var isOpenCodeMsg = (role === "opencode_approval");
+            var opencodeInstruction = "";
+            var opencodeFiles = "";
+            var opencodeModel = "";
+            var opencodeStatus = "pending";
+            var opencodeOutput = "";
+            if (isOpenCodeMsg) {
+                try {
+                    var opParsed = JSON.parse(content);
+                    opencodeInstruction = opParsed.instruction || "";
+                    opencodeFiles = opParsed.files || "";
+                    opencodeModel = opParsed.model || "";
+                    opencodeStatus = opParsed.status || "pending";
+                    opencodeOutput = opParsed.output || "";
+                    content = "";
+                } catch (e) {
+                    opencodeInstruction = content;
+                    content = "";
+                }
+            }
             var msg = TextHelpers.createDefaultMessage(role, content);
+            msg.messageId = msgs[i].id;
             msg.isError = false;
             msg.isCommand = isCommand;
             msg.commandCode = cmdCode;
@@ -863,6 +1035,11 @@ Item {
             msg.isMemory = isMemoryMsg;
             msg.memoryContent = memContent;
             msg.memoryId = memId;
+            msg.opencodeInstruction = opencodeInstruction;
+            msg.opencodeFiles = opencodeFiles;
+            msg.opencodeModel = opencodeModel;
+            msg.approvalStatus = opencodeStatus;
+            msg.approvalResult = opencodeOutput;
             chatMessageModel.append(msg);
         }
         _syncChatMessages();
@@ -1110,15 +1287,14 @@ Item {
     Connections {
         function onExpandedChanged() {
             if (root.expanded) {
-                if (mainStack.currentIndex === 0) {
+                if (mainStack.currentIndex === 0)
                     chatPage.forceActiveFocus();
-                } else if (mainStack.currentIndex === 1) {
+                else if (mainStack.currentIndex === 1)
                     historyPage.forceActiveFocus();
-                } else if (mainStack.currentIndex === 2) {
+                else if (mainStack.currentIndex === 2)
                     memoriesPage.forceActiveFocus();
-                } else if (mainStack.currentIndex === 3) {
+                else if (mainStack.currentIndex === 3)
                     tasksPage.forceActiveFocus();
-                }
             }
         }
 
@@ -1135,13 +1311,12 @@ Item {
             if (currentIndex === 0) {
                 chatPage.positionViewAtEnd();
                 chatPage.forceActiveFocus();
-            } else if (currentIndex === 1) {
+            } else if (currentIndex === 1)
                 historyPage.forceActiveFocus();
-            } else if (currentIndex === 2) {
+            else if (currentIndex === 2)
                 memoriesPage.forceActiveFocus();
-            } else if (currentIndex === 3) {
+            else if (currentIndex === 3)
                 tasksPage.forceActiveFocus();
-            }
         }
 
         // PAGE 0: Chat Interface
@@ -1208,6 +1383,12 @@ Item {
             }
             onDeclineSettingRequested: function(description, index) {
                 fullRepRoot.declineSetting(description, index);
+            }
+            onApproveOpenCodeRequested: function(instruction, files, model, index) {
+                fullRepRoot.approveOpenCode(instruction, files, model, index);
+            }
+            onDeclineOpenCodeRequested: function(instruction, index) {
+                fullRepRoot.declineOpenCode(instruction, index);
             }
             onDeleteMemoryRequested: function(memoryId, index) {
                 fullRepRoot.deleteMemory(memoryId, index);
@@ -1381,8 +1562,8 @@ Item {
                 });
             } catch (e) {
             }
-            // 4. Sync Current Session Messages
-            if (currentSessionId) {
+            // 4. Sync Current Session Messages (skip while active streaming to avoid race condition aborts)
+            if (currentSessionId && !isStreaming) {
                 var lastTime = 0;
                 if (chatMessageModel.count > 0) {
                     var lastMsg = chatMessageModel.get(chatMessageModel.count - 1);
@@ -1406,8 +1587,56 @@ Item {
         }
     }
 
+    // ── OpenCode real-time output polling timer ────────────────────
+    function stripAnsiCodes(text) {
+        // Strip CSI sequences: ESC [ ... final_byte
+        var s = text.replace(/\x1B\[[\x30-\x3F]*[\x20-\x2F]*[\x40-\x7E]/g, "");
+        // Strip OSC sequences: ESC ] ... BEL or ST
+        s = s.replace(/\x1B\][^\x07]*(?:\x07|\x1B\\)/g, "");
+        // Strip other two-char escapes (ESC + single char)
+        s = s.replace(/\x1B[^\[\]]/g, "");
+        // Collapse carriage returns (used for in-place line updates)
+        s = s.replace(/[^\n]*\r([^\n])/g, "$1");
+        s = s.replace(/\r/g, "");
+        return s;
+    }
+
+    Timer {
+        id: opencodeStreamPoller
+
+        interval: 1500
+        repeat: true
+        running: false
+        onTriggered: {
+            if (!opencodeRunning || opencodeLogFile === "" || opencodePollingAssistantIndex < 0)
+                return ;
+
+            var lf = opencodeLogFile;
+            var idx = opencodePollingAssistantIndex;
+            executeCommandLine("cat " + TextHelpers.escapeShellArg(lf), function(logStdout, logStderr, logCode) {
+                if (!opencodeRunning)
+                    return ;
+
+                var raw = logStdout || "";
+                // Strip all ANSI/VT100 escape sequences
+                var clean = stripAnsiCodes(raw);
+                // Remove sentinel line if present (means process finished; timer will be stopped by callback)
+                clean = clean.replace(/__OPENCODE_EXIT_\d+__\n?/g, "");
+                if (idx >= 0 && idx < chatMessageModel.count) {
+                    var current = chatMessageModel.get(idx).approvalResult || "";
+                    if (clean !== current)
+                        chatMessageModel.setProperty(idx, "approvalResult", clean);
+
+                }
+            });
+        }
+    }
+
     Rectangle {
         id: globalToolTip
+
+        property alias text: toolTipText.text
+
         visible: false
         color: Kirigami.Theme.alternateBackgroundColor
         border.color: Kirigami.Theme.disabledTextColor
@@ -1415,20 +1644,24 @@ Item {
         radius: Kirigami.Units.smallSpacing / 2
         z: 99999
         opacity: 0
-
-        property alias text: toolTipText.text
-
         implicitWidth: toolTipText.implicitWidth + Kirigami.Units.gridUnit * 1.2
         implicitHeight: toolTipText.implicitHeight + Kirigami.Units.smallSpacing * 2
 
         Controls.Label {
             id: toolTipText
+
             anchors.centerIn: parent
             font.pointSize: Kirigami.Theme.smallFont.pointSize
             color: Kirigami.Theme.textColor
         }
 
-        Behavior on opacity { NumberAnimation { duration: 100 } }
+        Behavior on opacity {
+            NumberAnimation {
+                duration: 100
+            }
+
+        }
+
     }
 
 }

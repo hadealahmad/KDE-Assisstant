@@ -109,6 +109,38 @@ function buildMessageArray(messageModel, AttachmentHelpers) {
                     role: "system",
                     content: "System Output for `" + cmdCode + "`:\n\n" + cmdOutput
                 });
+            } else if (role === "opencode_approval") {
+                var inst = m.opencodeInstruction || "";
+                var files = m.opencodeFiles || "";
+                var model = m.opencodeModel || "";
+                var status = m.approvalStatus || "";
+                var output = m.approvalResult || "";
+                
+                var tag = "[opencode: " + inst;
+                if (files) tag += " files=\"" + files + "\"";
+                if (model) tag += " model=\"" + model + "\"";
+                tag += "]";
+                
+                arr.push({
+                    role: "assistant",
+                    content: tag
+                });
+                if (status === "done" || status === "completed" || status === "success") {
+                    arr.push({
+                        role: "system",
+                        content: "OpenCode Output for `" + tag + "`:\n\n" + output
+                    });
+                } else if (status === "failed") {
+                    arr.push({
+                        role: "system",
+                        content: "OpenCode execution failed for `" + tag + "`:\n\n" + output
+                    });
+                } else if (status === "declined") {
+                    arr.push({
+                        role: "system",
+                        content: "OpenCode execution declined by user for instruction: \"" + inst + "\"."
+                    });
+                }
             } else if (role === "memory") {
                 // Skip memory cards from API context (they're in the system prompt already)
                 continue;

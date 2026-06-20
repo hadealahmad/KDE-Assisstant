@@ -14,9 +14,14 @@ Item {
     property var activeCallbacks: ({
     })
 
-    function execute(cmd, callback) {
+    property var activeProgressCallbacks: ({
+    })
+
+    function execute(cmd, callback, progressCallback) {
         if (callback)
             activeCallbacks[cmd] = callback;
+        if (progressCallback)
+            activeProgressCallbacks[cmd] = progressCallback;
 
         executableDataSource.connectSource(cmd);
     }
@@ -35,12 +40,22 @@ Item {
             // Log state change to debug file
             var statusMsg = "STT_DEBUG: cmd=[" + sourceName + "] exitCode=" + exitCode + " stdout_len=" + (data["stdout"] || "").length + " stderr_len=" + (data["stderr"] || "").length + " stderr_preview=" + (data["stderr"] || "").substring(0, 100).replace(/\n/g, " ");
             executableDataSource.connectSource("echo " + TextHelpers.escapeShellArg(statusMsg) + " >> /tmp/kde_assistant_stt.log");
+            
+            var stdout = data["stdout"] || "";
+            var stderr = data["stderr"] || "";
+
+            // Call progress callback if available (for real-time streaming)
+            var pcb = activeProgressCallbacks[sourceName];
+            if (pcb) {
+                pcb(stdout, stderr);
+            }
+
             if (exitCode === undefined)
                 return ;
 
-            var stdout = data["stdout"] || "";
-            var stderr = data["stderr"] || "";
             disconnectSource(sourceName);
+            delete activeProgressCallbacks[sourceName];
+            
             var cb = activeCallbacks[sourceName];
             if (cb) {
                 delete activeCallbacks[sourceName];

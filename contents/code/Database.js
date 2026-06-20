@@ -141,8 +141,23 @@ function saveMessage(db, sessionId, role, content) {
                 [now, sessionId]
             );
         });
+        return id;
     } catch (e) {
         console.error("saveMessage error:", e);
+        return "";
+    }
+}
+
+function updateMessageContent(db, messageId, newContent) {
+    try {
+        db.transaction(function (tx) {
+            tx.executeSql(
+                "UPDATE messages SET content = ? WHERE id = ?",
+                [newContent, messageId]
+            );
+        });
+    } catch (e) {
+        console.error("updateMessageContent error:", e);
     }
 }
 

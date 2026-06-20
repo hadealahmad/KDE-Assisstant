@@ -30,6 +30,10 @@ Kirigami.AbstractCard {
     readonly property bool isApproval: role === "setting_approval"
     readonly property bool isMemory: role === "memory"
     readonly property bool isTask: role === "task"
+    property string opencodeInstruction: ""
+    property string opencodeFiles: ""
+    property string opencodeModel: ""
+    readonly property bool isOpenCodeApproval: role === "opencode_approval"
     property string memoryContent: ""
     property string memoryId: ""
     property string taskTitle: ""
@@ -111,6 +115,8 @@ Kirigami.AbstractCard {
     // Decoupled signals
     signal approveSettingRequested(string command, string description, int index)
     signal declineSettingRequested(string description, int index)
+    signal approveOpenCodeRequested(string instruction, string files, string model, int index)
+    signal declineOpenCodeRequested(string instruction, int index)
     signal deleteMemoryRequested(string memoryId, int index)
     signal viewTasksRequested()
     signal openFileRequested(string filePath)
@@ -136,8 +142,7 @@ Kirigami.AbstractCard {
         display: Controls.AbstractButton.IconOnly
         text: "Copy"
         visible: root.cleanMessageText !== ""
-        opacity: cardHoverHandler.hovered ? 1.0 : 0.4
-        Behavior on opacity { NumberAnimation { duration: Kirigami.Units.shortDuration } }
+        opacity: cardHoverHandler.hovered ? 1 : 0.4
         flat: true
         onClicked: {
             fullRepRoot.hideToolTip();
@@ -146,12 +151,19 @@ Kirigami.AbstractCard {
             messageContent.deselect();
         }
         onHoveredChanged: {
-            if (hovered) {
+            if (hovered)
                 fullRepRoot.showToolTip(copyButton, "Copy message");
-            } else {
+            else
                 fullRepRoot.hideToolTip();
-            }
         }
+
+        Behavior on opacity {
+            NumberAnimation {
+                duration: Kirigami.Units.shortDuration
+            }
+
+        }
+
     }
 
     Controls.ToolButton {
@@ -164,8 +176,7 @@ Kirigami.AbstractCard {
         display: Controls.AbstractButton.IconOnly
         text: (fullRepRoot.isSpeaking && fullRepRoot.currentlySpokenText === root.cleanMessageText) ? "Stop Reading" : "Read Aloud"
         visible: root.cleanMessageText !== "" && !root.isUser && !root.isError && !root.isApproval && !root.isCommand && !root.isMemory && !root.isTask
-        opacity: (cardHoverHandler.hovered || (fullRepRoot.isSpeaking && fullRepRoot.currentlySpokenText === root.cleanMessageText)) ? 1.0 : 0.4
-        Behavior on opacity { NumberAnimation { duration: Kirigami.Units.shortDuration } }
+        opacity: (cardHoverHandler.hovered || (fullRepRoot.isSpeaking && fullRepRoot.currentlySpokenText === root.cleanMessageText)) ? 1 : 0.4
         flat: true
         onClicked: {
             fullRepRoot.hideToolTip();
@@ -175,17 +186,24 @@ Kirigami.AbstractCard {
                 root.speakRequested(root.cleanMessageText);
         }
         onHoveredChanged: {
-            if (hovered) {
+            if (hovered)
                 fullRepRoot.showToolTip(speakButton, speakButton.text);
-            } else {
+            else
                 fullRepRoot.hideToolTip();
-            }
         }
+
+        Behavior on opacity {
+            NumberAnimation {
+                duration: Kirigami.Units.shortDuration
+            }
+
+        }
+
     }
 
     // Subtle tint to distinguish user vs assistant bubbles
     background: Rectangle {
-        visible: root.isUser || root.isError || root.isMemory || root.isTask
+        visible: root.isUser || root.isError || root.isMemory || root.isTask || root.isOpenCodeApproval
         color: {
             if (root.isError)
                 return Qt.rgba(Kirigami.Theme.negativeTextColor.r, Kirigami.Theme.negativeTextColor.g, Kirigami.Theme.negativeTextColor.b, 0.08);
@@ -198,6 +216,9 @@ Kirigami.AbstractCard {
 
             if (root.isTask)
                 return Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g, 0.6, 0.07);
+
+            if (root.isOpenCodeApproval)
+                return Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g, 0.8, 0.07);
 
             return "transparent";
         }
@@ -214,6 +235,9 @@ Kirigami.AbstractCard {
 
             if (root.isTask)
                 return Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g, 0.6, 0.3);
+
+            if (root.isOpenCodeApproval)
+                return Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g, 0.8, 0.3);
 
             return "transparent";
         }
@@ -234,6 +258,9 @@ Kirigami.AbstractCard {
 
                 if (root.isApproval)
                     return "🔧 System Change Approval";
+
+                if (root.isOpenCodeApproval)
+                    return "💻 OpenCode Coding Task";
 
                 if (root.isCommand)
                     return "⚙ System Command";
@@ -256,6 +283,9 @@ Kirigami.AbstractCard {
                     return Kirigami.Theme.highlightColor;
 
                 if (root.isApproval)
+                    return Kirigami.Theme.highlightColor;
+
+                if (root.isOpenCodeApproval)
                     return Kirigami.Theme.highlightColor;
 
                 if (root.isCommand)
@@ -297,6 +327,24 @@ Kirigami.AbstractCard {
             }
         }
 
+        // OpenCode Approval Interface
+        Components.OpenCodeApprovalCard {
+            visible: root.isOpenCodeApproval
+            approvalStatus: root.approvalStatus
+            opencodeInstruction: root.opencodeInstruction
+            opencodeFiles: root.opencodeFiles
+            opencodeModel: root.opencodeModel
+            approvalResult: root.approvalResult
+            resultExpanded: root.resultExpanded
+            onResultExpandedChanged: root.resultExpanded = resultExpanded
+            onApproved: function(inst, files, model) {
+                root.approveOpenCodeRequested(inst, files, model, root.messageIndex);
+            }
+            onDeclined: function(inst) {
+                root.declineOpenCodeRequested(inst, root.messageIndex);
+            }
+        }
+
         // System Command Block
         Components.SystemCommandCard {
             visible: root.isCommand
@@ -312,7 +360,7 @@ Kirigami.AbstractCard {
 
             Layout.fillWidth: true
             Layout.leftMargin: Kirigami.Units.gridUnit * 2
-            visible: !root.isApproval && !root.isCommand && !root.isMemory && !root.isTask && root.cleanMessageText !== ""
+            visible: !root.isApproval && !root.isOpenCodeApproval && !root.isCommand && !root.isMemory && !root.isTask && root.cleanMessageText !== ""
             readOnly: true
             wrapMode: TextEdit.WordWrap
             selectByMouse: true

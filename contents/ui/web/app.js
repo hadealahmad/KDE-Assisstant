@@ -611,6 +611,26 @@ function appendMessageBubble(msg) {
         bodyText = "";
     }
     
+    let isOpenCode = (role === "opencode_approval");
+    let opencodeInstruction = "";
+    let opencodeFiles = "";
+    let opencodeModel = "";
+    let opencodeStatus = "pending";
+    let opencodeOutput = "";
+    if (isOpenCode) {
+        try {
+            let parsed = JSON.parse(bodyText);
+            opencodeInstruction = parsed.instruction || "";
+            opencodeFiles = parsed.files || "";
+            opencodeModel = parsed.model || "";
+            opencodeStatus = parsed.status || "pending";
+            opencodeOutput = parsed.output || "";
+        } catch (e) {
+            opencodeInstruction = bodyText;
+        }
+        bodyText = "";
+    }
+    
     // 1. Thinking/Reasoning block extraction & collapsible rendering
     let thinkingText = '';
     const startTag = "<thinking>";
@@ -712,6 +732,87 @@ function appendMessageBubble(msg) {
         container.appendChild(settingCard);
     }
     
+    // OpenCode approval card
+    if (isOpenCode) {
+        const opencodeCard = document.createElement('div');
+        opencodeCard.className = 'card-wrapper command';
+        
+        const badgeClass = `status-${opencodeStatus}`;
+        const badgeLabel = opencodeStatus === 'completed' || opencodeStatus === 'success' ? 'Success' : opencodeStatus === 'pending' ? 'Pending Approval' : opencodeStatus.toUpperCase();
+        
+        let initialModel = opencodeModel || 'opencode/mimo-v2.5-free';
+        let cardHtml = `
+            <div class="card-header-row">
+                <span>💻 OpenCode Approval</span>
+                <span class="card-badge ${badgeClass}">${badgeLabel}</span>
+            </div>
+        `;
+
+        if (opencodeStatus === 'pending') {
+            cardHtml += `
+                <div class="opencode-model-select-row" style="margin: 8px 0; display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 0.8rem; font-weight: bold; min-width: 60px;">Model:</span>
+                    <select class="opencode-model-select" style="flex: 1; padding: 4px; border-radius: 4px; background: var(--input); color: var(--foreground); border: 1px solid var(--border); font-size: 0.8rem;" onchange="window.updateOpenCodeCommandPreview(this, '${escapeHtml(opencodeInstruction).replace(/'/g, "\\'")}', '${escapeHtml(opencodeFiles).replace(/'/g, "\\'")}')">
+                        <option value="opencode/mimo-v2.5-free" ${initialModel === 'opencode/mimo-v2.5-free' ? 'selected' : ''}>opencode/mimo-v2.5-free (Remote Free)</option>
+                        <option value="opencode/deepseek-v4-flash-free" ${initialModel === 'opencode/deepseek-v4-flash-free' ? 'selected' : ''}>opencode/deepseek-v4-flash-free (Remote Free)</option>
+                        <option value="opencode/claude-sonnet-4-6" ${initialModel === 'opencode/claude-sonnet-4-6' ? 'selected' : ''}>opencode/claude-sonnet-4-6</option>
+                        <option value="opencode/gpt-5.4-mini" ${initialModel === 'opencode/gpt-5.4-mini' ? 'selected' : ''}>opencode/gpt-5.4-mini</option>
+                        <option value="ollama/gemma4" ${initialModel === 'ollama/gemma4' ? 'selected' : ''}>ollama/gemma4 (Local)</option>
+                        <option value="" ${initialModel === '' ? 'selected' : ''}>Default (from config)</option>
+                    </select>
+                </div>
+            `;
+        } else if (opencodeModel) {
+            cardHtml += `<div style="font-size: 0.8rem; color: var(--muted-foreground); margin: 2px 0;"><strong>Model:</strong> ${escapeHtml(opencodeModel)}</div>`;
+        }
+
+        // Build command display string
+        let displayCmd = `opencode run "${escapeHtml(opencodeInstruction)}" --dangerously-skip-permissions`;
+        if (opencodeFiles) {
+            opencodeFiles.split(',').forEach(f => {
+                f = f.trim();
+                if (f) displayCmd += ` -f "${escapeHtml(f)}"`;
+            });
+        }
+        if (opencodeStatus === 'pending') {
+            if (initialModel) displayCmd += ` --model "${escapeHtml(initialModel)}"`;
+        } else if (opencodeModel) {
+            displayCmd += ` --model "${escapeHtml(opencodeModel)}"`;
+        }
+
+        cardHtml += `
+            <div class="command-code-display" style="white-space: pre-wrap; font-family: monospace; font-size: 0.8rem; background: var(--secondary); padding: 8px; border-radius: 4px; border: 1px solid var(--border); margin: 6px 0;">${displayCmd}</div>
+            <div style="font-size: 0.85rem; color: var(--muted-foreground); margin: 4px 0;">${escapeHtml(opencodeInstruction)}</div>
+        `;
+        if (opencodeFiles) {
+            cardHtml += `<div style="font-size: 0.8rem; color: var(--muted-foreground); margin: 2px 0;"><strong>Files:</strong> ${escapeHtml(opencodeFiles)}</div>`;
+        }
+        
+        if (opencodeStatus === 'pending') {
+            cardHtml += `
+                <div class="card-actions-row">
+                    <button class="card-btn approve" onclick="handleCommandAction('${msg.id}', 'approve', this)">Approve and Run</button>
+                    <button class="card-btn decline" onclick="handleCommandAction('${msg.id}', 'decline', this)">Decline</button>
+                </div>
+            `;
+        } else if (opencodeStatus === 'running') {
+            cardHtml += `
+                <div style="font-size:0.75rem; color:var(--muted-foreground); text-align:center; padding: 4px;">
+                    Executing OpenCode run on host...
+                </div>
+            `;
+        }
+        
+        if (opencodeOutput) {
+            cardHtml += `
+                <div class="command-terminal-output" style="white-space: pre-wrap; font-family: monospace; font-size: 0.8rem; background: #000; color: #0f0; padding: 8px; border-radius: 4px; margin-top: 6px; max-height: 300px; overflow-y: auto;">${escapeHtml(opencodeOutput)}</div>
+            `;
+        }
+        
+        opencodeCard.innerHTML = cardHtml;
+        container.appendChild(opencodeCard);
+    }
+    
     // 4. Task Saved Indicator Card (Path C)
     if (isTask) {
         const taskCard = document.createElement('div');
@@ -742,25 +843,64 @@ function appendMessageBubble(msg) {
     return container;
 }
 
+// Helper to dynamically update the command line preview when model selector changes
+window.updateOpenCodeCommandPreview = function(selectEl, instruction, files) {
+    const card = selectEl.closest('.card-wrapper');
+    const display = card.querySelector('.command-code-display');
+    const model = selectEl.value;
+    let cmd = `opencode run "${instruction}" --dangerously-skip-permissions`;
+    if (files) {
+        files.split(',').forEach(f => {
+            f = f.trim();
+            if (f) cmd += ` -f "${f}"`;
+        });
+    }
+    if (model) {
+        cmd += ` --model "${model}"`;
+    }
+    display.textContent = cmd;
+};
+
 // Global action handler for interactive remote command triggers
 window.handleCommandAction = async function(messageId, action, btnElement) {
     const card = btnElement.closest('.card-wrapper');
+    const selectEl = card.querySelector('.opencode-model-select');
+    const selectedModel = selectEl ? selectEl.value : null;
+
     const actionsRow = card.querySelector('.card-actions-row');
     const promptRow = card.querySelector('.mobile-tool-prompt');
     const badge = card.querySelector('.card-badge');
+    const modelRow = card.querySelector('.opencode-model-select-row');
     
     if (actionsRow) actionsRow.remove();
     if (promptRow) promptRow.remove();
+    if (modelRow) {
+        // Replace model select dropdown row with a static text label if approved
+        if (action === 'approve' && selectedModel) {
+            const staticModel = document.createElement('div');
+            staticModel.style.fontSize = '0.8rem';
+            staticModel.style.color = 'var(--muted-foreground)';
+            staticModel.style.margin = '2px 0';
+            staticModel.innerHTML = `<strong>Model:</strong> ${escapeHtml(selectedModel)}`;
+            modelRow.replaceWith(staticModel);
+        } else {
+            modelRow.remove();
+        }
+    }
     
     // Update badge status UI locally
     badge.className = `card-badge status-${action === 'approve' ? 'running' : 'declined'}`;
     badge.textContent = action === 'approve' ? 'Running...' : 'Declined';
     
     try {
+        const reqBody = { message_id: messageId, action: action };
+        if (action === 'approve' && selectedModel !== null) {
+            reqBody.model = selectedModel;
+        }
         const response = await fetch(`/api/commands/action?token=${activeToken}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message_id: messageId, action: action })
+            body: JSON.stringify(reqBody)
         });
         
         if (response.ok) {

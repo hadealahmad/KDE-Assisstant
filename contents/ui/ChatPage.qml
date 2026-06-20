@@ -60,6 +60,8 @@ Item {
     // Signals bubbled from ChatMessage
     signal approveSettingRequested(string command, string description, int index)
     signal declineSettingRequested(string description, int index)
+    signal approveOpenCodeRequested(string instruction, string files, string model, int index)
+    signal declineOpenCodeRequested(string instruction, int index)
     signal deleteMemoryRequested(string memoryId, int index)
     signal openFileRequested(string filePath)
     signal openAttachmentRequested(var attachment)
@@ -192,11 +194,20 @@ Item {
                     taskGroupId: delegateRoot.modelData.taskGroupId ?? ""
                     taskPriority: delegateRoot.modelData.taskPriority ?? 0
                     taskDueDate: delegateRoot.modelData.taskDueDate ?? ""
+                    opencodeInstruction: delegateRoot.modelData.opencodeInstruction ?? ""
+                    opencodeFiles: delegateRoot.modelData.opencodeFiles ?? ""
+                    opencodeModel: delegateRoot.modelData.opencodeModel ?? ""
                     onApproveSettingRequested: function(command, description, index) {
                         chatPageRoot.approveSettingRequested(command, description, index);
                     }
                     onDeclineSettingRequested: function(description, index) {
                         chatPageRoot.declineSettingRequested(description, index);
+                    }
+                    onApproveOpenCodeRequested: function(instruction, files, model, index) {
+                        chatPageRoot.approveOpenCodeRequested(instruction, files, model, index);
+                    }
+                    onDeclineOpenCodeRequested: function(instruction, index) {
+                        chatPageRoot.declineOpenCodeRequested(instruction, index);
                     }
                     onDeleteMemoryRequested: function(memoryId, index) {
                         chatPageRoot.deleteMemoryRequested(memoryId, index);
@@ -365,7 +376,8 @@ Item {
             onClicked: chatPageRoot.toggleMemories()
         }
 
-        PlasmaComponents.MenuSeparator {}
+        PlasmaComponents.MenuSeparator {
+        }
 
         PlasmaComponents.MenuItem {
             icon.name: chatPageRoot.webserverEnabled ? "network-server" : "network-offline"
@@ -378,6 +390,7 @@ Item {
             text: "Settings"
             onClicked: chatPageRoot.openSettings()
         }
+
     }
 
 }
