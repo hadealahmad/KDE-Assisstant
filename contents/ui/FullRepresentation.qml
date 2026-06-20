@@ -1209,8 +1209,7 @@ Item {
         var safeTitle = currentSessionTitle.replace(/[^a-zA-Z0-9_\- ]/g, "").replace(/\s+/g, "_").substring(0, 60);
         if (safeTitle === "")
             safeTitle = "chat_export";
-        exportDialog.defaultSuffix = "md";
-        exportDialog.selectedFile = "";
+        exportDialog.selectedFile = safeTitle + ".md";
         exportDialog.open();
     }
 
@@ -1218,27 +1217,17 @@ Item {
         if (!fileUrl || fileUrl === "")
             return;
         var markdown = "# " + currentSessionTitle + "\n\n" + buildConversationMarkdown() + "\n";
-        var tempPath = "/tmp/kde_assistant_export_" + Date.now() + ".md";
-        // Write to temp file using heredoc to avoid escaping issues
-        var escapedMarkdown = markdown.replace(/\\/g, "\\\\").replace(/'/g, "'\\''");
-        var writeCmd = "printf '%s' '" + escapedMarkdown + "' > " + TextHelpers.escapeShellArg(tempPath);
+        var destPath = fileUrl.toString().replace("file://", "");
+        // Use base64 to safely transport content through shell
+        var b64 = Qt.btoa(unescape(encodeURIComponent(markdown)));
+        var writeCmd = "echo " + TextHelpers.escapeShellArg(b64) + " | base64 -d > " + TextHelpers.escapeShellArg(destPath);
         commandRunner.execute(writeCmd, function(stdout, stderr, exitCode) {
             if (exitCode === 0) {
-                // Convert file:// URL to path and copy
-                var destPath = fileUrl.replace("file://", "");
-                var moveCmd = "cp " + TextHelpers.escapeShellArg(tempPath) + " " + TextHelpers.escapeShellArg(destPath) + " && rm -f " + TextHelpers.escapeShellArg(tempPath);
-                commandRunner.execute(moveCmd, function(moveStdout, moveStderr, moveExitCode) {
-                    if (moveExitCode === 0) {
-                        var notifyOk = "notify-send -i document-save 'KDE Assistant' 'Conversation exported to " + TextHelpers.escapeShellArg(destPath) + "'";
-                        commandRunner.execute(notifyOk);
-                    } else {
-                        var notifyFail = "notify-send -i dialog-error 'KDE Assistant' 'Failed to export conversation'";
-                        commandRunner.execute(notifyFail);
-                    }
-                });
+                var notifyOk = "notify-send -i document-save 'KDE Assistant' 'Conversation exported successfully'";
+                commandRunner.execute(notifyOk);
             } else {
-                var notifyFail2 = "notify-send -i dialog-error 'KDE Assistant' 'Failed to export conversation'";
-                commandRunner.execute(notifyFail2);
+                var notifyFail = "notify-send -i dialog-error 'KDE Assistant' 'Failed to export conversation'";
+                commandRunner.execute(notifyFail);
             }
         });
     }
