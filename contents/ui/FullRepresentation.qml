@@ -1098,7 +1098,7 @@ Item {
         }
     }
 
-    function copyConversationToClipboard() {
+    function buildConversationMarkdown() {
         var markdown = "";
         for (var i = 0; i < chatMessageModel.count; i++) {
             var m = chatMessageModel.get(i);
@@ -1145,12 +1145,10 @@ Item {
                     else if (appStatus === "declined")
                         markdown += "*Declined by user.*\n\n";
                 } else if (role === "memory") {
-                    roleLabel = "### Memory Saved";
                     var memCopyContent = m.memoryContent || "";
                     if (memCopyContent)
                         markdown += memCopyContent + "\n\n";
                 } else if (role === "task") {
-                    roleLabel = "### Task Created";
                     var taskCopyTitle = m.taskTitle || "";
                     if (taskCopyTitle) {
                         markdown += "**" + taskCopyTitle + "**";
@@ -1163,7 +1161,6 @@ Item {
                         markdown += "\n\n";
                     }
                 } else if (role === "opencode_approval") {
-                    roleLabel = "### OpenCode Coding Task";
                     var ocInst = m.opencodeInstruction || "";
                     var ocFiles = m.opencodeFiles || "";
                     var ocModel = m.opencodeModel || "";
@@ -1197,10 +1194,53 @@ Item {
                 markdown += "---\n\n";
             }
         }
-        clipboardHelper.text = markdown.trim();
+        return markdown.trim();
+    }
+
+    function copyConversationToClipboard() {
+        clipboardHelper.text = buildConversationMarkdown();
         clipboardHelper.selectAll();
         clipboardHelper.copy();
         clipboardHelper.deselect();
+    }
+
+    function exportConversationToMarkdown() {
+        // Build a safe filename from the session title
+        var safeTitle = currentSessionTitle.replace(/[^a-zA-Z0-9_\- ]/g, "").replace(/\s+/g, "_").substring(0, 60);
+        if (safeTitle === "")
+            safeTitle = "chat_export";
+        exportDialog.defaultSuffix = "md";
+        exportDialog.selectedFile = "";
+        exportDialog.open();
+    }
+
+    function saveMarkdownToFile(fileUrl) {
+        if (!fileUrl || fileUrl === "")
+            return;
+        var markdown = "# " + currentSessionTitle + "\n\n" + buildConversationMarkdown() + "\n";
+        var tempPath = "/tmp/kde_assistant_export_" + Date.now() + ".md";
+        // Write to temp file using heredoc to avoid escaping issues
+        var escapedMarkdown = markdown.replace(/\\/g, "\\\\").replace(/'/g, "'\\''");
+        var writeCmd = "printf '%s' '" + escapedMarkdown + "' > " + TextHelpers.escapeShellArg(tempPath);
+        commandRunner.execute(writeCmd, function(stdout, stderr, exitCode) {
+            if (exitCode === 0) {
+                // Convert file:// URL to path and copy
+                var destPath = fileUrl.replace("file://", "");
+                var moveCmd = "cp " + TextHelpers.escapeShellArg(tempPath) + " " + TextHelpers.escapeShellArg(destPath) + " && rm -f " + TextHelpers.escapeShellArg(tempPath);
+                commandRunner.execute(moveCmd, function(moveStdout, moveStderr, moveExitCode) {
+                    if (moveExitCode === 0) {
+                        var notifyOk = "notify-send -i document-save 'KDE Assistant' 'Conversation exported to " + TextHelpers.escapeShellArg(destPath) + "'";
+                        commandRunner.execute(notifyOk);
+                    } else {
+                        var notifyFail = "notify-send -i dialog-error 'KDE Assistant' 'Failed to export conversation'";
+                        commandRunner.execute(notifyFail);
+                    }
+                });
+            } else {
+                var notifyFail2 = "notify-send -i dialog-error 'KDE Assistant' 'Failed to export conversation'";
+                commandRunner.execute(notifyFail2);
+            }
+        });
     }
 
     function startNewSession() {
@@ -1723,6 +1763,7 @@ Item {
             onToggleRecording: fullRepRoot.toggleRecording()
             onStartNewSession: fullRepRoot.startNewSession()
             onCopyConversation: fullRepRoot.copyConversationToClipboard()
+            onExportMarkdown: fullRepRoot.exportConversationToMarkdown()
             onOpenSettings: Plasmoid.internalAction("configure").trigger()
             onTogglePin: root.keepOpen = !root.keepOpen
             onToggleWebserver: Plasmoid.configuration.webserverEnabled = !Plasmoid.configuration.webserverEnabled
@@ -1832,6 +1873,17 @@ Item {
         fileMode: FileDialog.OpenFiles
         onAccepted: {
             fullRepRoot.processSelectedFiles(selectedFiles);
+        }
+    }
+
+    FileDialog {
+        id: exportDialog
+
+        title: "Export Conversation to Markdown"
+        nameFilters: ["Markdown files (*.md)", "All files (*)"]
+        fileMode: FileDialog.SaveFile
+        onAccepted: {
+            fullRepRoot.saveMarkdownToFile(selectedFile);
         }
     }
 

@@ -47,6 +47,7 @@ Item {
     signal toggleRecording()
     signal startNewSession()
     signal copyConversation()
+    signal exportMarkdown()
     signal openSettings()
     signal togglePin()
     signal toggleWebserver()
@@ -367,6 +368,12 @@ Item {
             icon.name: "edit-copy"
             text: "Copy Conversation"
             onClicked: chatPageRoot.copyConversation()
+        }
+
+        PlasmaComponents.MenuItem {
+            icon.name: "document-export"
+            text: "Export to Markdown"
+            onClicked: chatPageRoot.exportMarkdown()
         }
 
         PlasmaComponents.MenuItem {
