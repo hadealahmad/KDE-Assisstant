@@ -35,6 +35,10 @@ Item {
     property string currentSessionId: ""
     property string currentSessionTitle: "New Chat"
     property bool isStreaming: false
+    property string streamingSessionId: ""
+    // ── Background session storage ────────────────────────────
+    property var _sessionStore: ({})
+    property var _opencodeStateStore: ({})
     property bool historyViewActive: false
     property bool memoriesViewActive: false
     property bool tasksViewActive: false
@@ -68,6 +72,59 @@ Item {
     property string opencodeLogFile: ""
     property int opencodePollingAssistantIndex: -1
     property bool opencodeRunning: false
+    property string opencodeSessionId: ""
+    property string _opencodeCapturedSessionId: ""
+
+    // ── Session state save/restore for background streaming ────
+    function _saveSessionState(sessionId) {
+        _sessionStore[sessionId] = {
+            title: currentSessionTitle,
+            streaming: isStreaming,
+            streamingSessionId: streamingSessionId,
+            opencodeRunning: opencodeRunning,
+            opencodeSessionId: opencodeSessionId,
+            opencodeLogFile: opencodeLogFile,
+            opencodePollingAssistantIndex: opencodePollingAssistantIndex,
+            contextUsedChars: contextUsedChars,
+            contextUsagePercent: contextUsagePercent
+        };
+        _sessionStoreChanged();
+    }
+
+    function _restoreSessionState(sessionId) {
+        var state = _sessionStore[sessionId];
+        if (!state)
+            return false;
+
+        currentSessionTitle = state.title || "New Chat";
+        isStreaming = state.streaming || false;
+        streamingSessionId = state.streamingSessionId || "";
+        opencodeRunning = state.opencodeRunning || false;
+        opencodeSessionId = state.opencodeSessionId || "";
+        opencodeLogFile = state.opencodeLogFile || "";
+        opencodePollingAssistantIndex = state.opencodePollingAssistantIndex !== undefined ? state.opencodePollingAssistantIndex : -1;
+        contextUsedChars = state.contextUsedChars || 0;
+        contextUsagePercent = state.contextUsagePercent || 0;
+
+        // Restart timers if background work is active
+        if (opencodeRunning && opencodeLogFile !== "") {
+            opencodeStreamPoller.start();
+            opencodeTimeout.start();
+        }
+
+        delete _sessionStore[sessionId];
+        _sessionStoreChanged();
+        return true;
+    }
+
+    function _isSessionActive(sessionId) {
+        return sessionId === currentSessionId;
+    }
+
+    function _bufferBackgroundMessage(sessionId, role, content) {
+        // Background messages are saved to DB by the caller.
+        // This function is a no-op placeholder for symmetry.
+    }
 
     function insertTextIntoInput(text) {
         console.log("STT_QML: Inserting text: " + text);
@@ -202,6 +259,9 @@ Item {
     function handleMultipleTaskCommands(taskTags, assistantIndex, originalText) {
         if (!taskTags || taskTags.length === 0)
             return ;
+        // Guard: model may have been cleared if user switched sessions
+        if (assistantIndex >= chatMessageModel.count)
+            return;
 
         var createdTasks = [];
         var groupCache = {
@@ -254,8 +314,10 @@ Item {
                 "id": savedTaskId
             });
             if (i === 0 && assistantIndex >= 0 && assistantIndex < chatMessageModel.count) {
+                var preservedThinkingTask = TextHelpers.extractThinkingText(chatMessageModel.get(assistantIndex).content || "");
                 chatMessageModel.setProperty(assistantIndex, "role", "task");
                 chatMessageModel.setProperty(assistantIndex, "content", "");
+                chatMessageModel.setProperty(assistantIndex, "thinkingText", preservedThinkingTask);
                 chatMessageModel.setProperty(assistantIndex, "taskTitle", taskTitle);
                 chatMessageModel.setProperty(assistantIndex, "taskGroupId", taskOpts.groupId || "");
                 chatMessageModel.setProperty(assistantIndex, "taskPriority", taskOpts.priority || 0);
@@ -302,10 +364,15 @@ Item {
     }
 
     function handleParsedCommand(cmdTag, assistantIndex) {
+        // Guard: model may have been cleared if user switched sessions
+        if (assistantIndex >= chatMessageModel.count)
+            return;
         activeAssistantIndex = assistantIndex;
         if (cmdTag.type === "system") {
+            var preservedThinkingSys = TextHelpers.extractThinkingText(chatMessageModel.get(assistantIndex).content || "");
             chatMessageModel.setProperty(assistantIndex, "role", "system_command");
             chatMessageModel.setProperty(assistantIndex, "content", "⚙ Running command: `" + cmdTag.command + "`...");
+            chatMessageModel.setProperty(assistantIndex, "thinkingText", preservedThinkingSys);
             chatMessageModel.setProperty(assistantIndex, "isCommand", true);
             chatMessageModel.setProperty(assistantIndex, "commandCode", cmdTag.command);
             chatMessageModel.setProperty(assistantIndex, "commandOutput", "");
@@ -378,12 +445,19 @@ Item {
             };
             executeCommandLine(grepCmd, grepCallback);
         } else if (cmdTag.type === "setting") {
+            // Preserve thinking text before replacing content
+            var currentContentSetting = chatMessageModel.get(assistantIndex).content || "";
+            var preservedThinkingSetting = TextHelpers.extractThinkingText(currentContentSetting);
             chatMessageModel.setProperty(assistantIndex, "role", "setting_approval");
             chatMessageModel.setProperty(assistantIndex, "content", cmdTag.command + "\n\n" + cmdTag.description);
+            chatMessageModel.setProperty(assistantIndex, "thinkingText", preservedThinkingSetting);
             chatMessageModel.setProperty(assistantIndex, "approvalStatus", "pending");
             chatMessageModel.setProperty(assistantIndex, "approvalResult", "");
             chatPage.positionViewAtEnd();
         } else if (cmdTag.type === "opencode") {
+            // Preserve thinking text before replacing content with JSON
+            var currentContent = chatMessageModel.get(assistantIndex).content || "";
+            var preservedThinking = TextHelpers.extractThinkingText(currentContent);
             chatMessageModel.setProperty(assistantIndex, "role", "opencode_approval");
             var op_content = JSON.stringify({
                 "instruction": cmdTag.instruction,
@@ -391,12 +465,19 @@ Item {
                 "model": cmdTag.model || ""
             });
             chatMessageModel.setProperty(assistantIndex, "content", op_content);
+            chatMessageModel.setProperty(assistantIndex, "thinkingText", preservedThinking);
             chatMessageModel.setProperty(assistantIndex, "opencodeInstruction", cmdTag.instruction);
             chatMessageModel.setProperty(assistantIndex, "opencodeFiles", cmdTag.files || "");
             chatMessageModel.setProperty(assistantIndex, "opencodeModel", cmdTag.model || "");
             chatMessageModel.setProperty(assistantIndex, "approvalStatus", "pending");
             chatMessageModel.setProperty(assistantIndex, "approvalResult", "");
-            var op_id = Db.saveMessage(db, currentSessionId, "opencode_approval", op_content);
+            var op_content_with_thinking = JSON.stringify({
+                "instruction": cmdTag.instruction,
+                "files": cmdTag.files || "",
+                "model": cmdTag.model || "",
+                "thinking": preservedThinking || ""
+            });
+            var op_id = Db.saveMessage(db, currentSessionId, "opencode_approval", op_content_with_thinking);
             chatMessageModel.setProperty(assistantIndex, "messageId", op_id);
             loadSessionList();
             chatPage.positionViewAtEnd();
@@ -413,8 +494,10 @@ Item {
                 var notifyCmd = "notify-send -i dialog-information 'KDE Assistant' " + TextHelpers.escapeShellArg("Memory Saved: " + memContent);
                 commandRunner.execute(notifyCmd);
                 // Convert the assistant message to a memory card in the chat
+                var preservedThinkingMem = TextHelpers.extractThinkingText(chatMessageModel.get(assistantIndex).content || "");
                 chatMessageModel.setProperty(assistantIndex, "role", "memory");
                 chatMessageModel.setProperty(assistantIndex, "content", "");
+                chatMessageModel.setProperty(assistantIndex, "thinkingText", preservedThinkingMem);
                 chatMessageModel.setProperty(assistantIndex, "memoryContent", memContent);
                 chatMessageModel.setProperty(assistantIndex, "memoryId", memId);
                 chatPage.positionViewAtEnd();
@@ -531,21 +614,51 @@ Item {
 
     function resumeStreaming(updatedMessages) {
         isStreaming = true;
+        streamingSessionId = currentSessionId;
         var assistantIndex = chatMessageModel.count;
         chatMessageModel.append(TextHelpers.createDefaultMessage("assistant", ""));
         chatPage.positionViewAtEnd();
         var config = getApiConfig();
+        var capturedSessionId = currentSessionId;
         Api.sendMessage(updatedMessages, config, function(accumulated) {
+            if (!_isSessionActive(capturedSessionId))
+                return;
             if (assistantIndex < chatMessageModel.count)
                 chatMessageModel.setProperty(assistantIndex, "content", TextHelpers.preprocessMarkdown(accumulated));
 
             chatPage.positionViewAtEnd();
         }, function(finalText, usage) {
             isStreaming = false;
+            streamingSessionId = "";
             if (usage && usage.total_tokens) {
                 contextUsedChars = usage.total_tokens;
                 contextUsagePercent = Math.min(100, Math.round((usage.total_tokens / contextMaxChars) * 100));
             }
+            // If user switched sessions, save tool call messages correctly
+            if (!_isSessionActive(capturedSessionId)) {
+                var bgCmdTag = TextHelpers.parseCommandTag(finalText);
+                if (bgCmdTag) {
+                    var bgRole = bgCmdTag.type === "opencode" ? "opencode_approval" : bgCmdTag.type === "setting" ? "setting_approval" : bgCmdTag.type === "system" ? "system_command" : "assistant";
+                    var bgContent = finalText;
+                    if (bgCmdTag.type === "opencode") {
+                        bgContent = JSON.stringify({
+                            "instruction": bgCmdTag.instruction,
+                            "files": bgCmdTag.files || "",
+                            "model": bgCmdTag.model || "",
+                            "status": "pending",
+                            "output": ""
+                        });
+                    } else if (bgCmdTag.type === "setting") {
+                        bgContent = bgCmdTag.command + "\n\n" + bgCmdTag.description;
+                    }
+                    Db.saveMessage(db, capturedSessionId, bgRole, bgContent);
+                } else {
+                    Db.saveMessage(db, capturedSessionId, "assistant", finalText);
+                }
+                loadSessionList();
+                return ;
+            }
+            Db.saveMessage(db, capturedSessionId, "assistant", finalText);
             var allTaskTags = TextHelpers.parseAllCommandTags(finalText);
             if (allTaskTags.length > 0) {
                 var filteredTags = [];
@@ -556,7 +669,9 @@ Item {
 
                 }
                 if (filteredTags.length > 0) {
-                    handleMultipleTaskCommands(filteredTags, assistantIndex, finalText);
+                    if (assistantIndex < chatMessageModel.count)
+                        handleMultipleTaskCommands(filteredTags, assistantIndex, finalText);
+                    loadSessionList();
                     return ;
                 }
             }
@@ -565,31 +680,29 @@ Item {
                 if (cmdTag.type === "task" || cmdTag.type === "add_task") {
                     var tt = (cmdTag.title || "").trim().toLowerCase();
                     if (tt && recentlyCreatedTaskTitles.indexOf(tt) !== -1) {
-                        if (assistantIndex < chatMessageModel.count)
-                            chatMessageModel.setProperty(assistantIndex, "content", "");
-
-                        chatPage.positionViewAtEnd();
                         loadSessionList();
                         return ;
                     }
                 }
-                handleParsedCommand(cmdTag, assistantIndex);
+                if (assistantIndex < chatMessageModel.count)
+                    handleParsedCommand(cmdTag, assistantIndex);
+                else
+                    loadSessionList();
                 return ;
             }
             if (assistantIndex < chatMessageModel.count) {
                 var processed = TextHelpers.preprocessMarkdown(finalText);
                 chatMessageModel.setProperty(assistantIndex, "content", processed);
-                Db.saveMessage(db, currentSessionId, "assistant", finalText);
             }
-            chatPage.positionViewAtEnd();
             loadSessionList();
         }, function(errorMsg) {
             isStreaming = false;
-            if (assistantIndex < chatMessageModel.count) {
+            streamingSessionId = "";
+            if (_isSessionActive(capturedSessionId) && assistantIndex < chatMessageModel.count) {
                 chatMessageModel.setProperty(assistantIndex, "content", errorMsg);
                 chatMessageModel.setProperty(assistantIndex, "isError", true);
+                chatPage.positionViewAtEnd();
             }
-            chatPage.positionViewAtEnd();
         });
     }
 
@@ -661,9 +774,17 @@ Item {
     }
 
     function approveOpenCode(instruction, files, model, assistantIndex) {
+        // Guard against concurrent opencode runs
+        if (opencodeRunning) {
+            console.log("OpenCode: Rejecting approval - another run is already active");
+            return;
+        }
+
         chatMessageModel.setProperty(assistantIndex, "approvalStatus", "running");
         chatMessageModel.setProperty(assistantIndex, "opencodeModel", model);
         chatMessageModel.setProperty(assistantIndex, "approvalResult", "");
+
+        var capturedSessionId = currentSessionId;
 
         // Write the "running" status to the database immediately
         var messageId = chatMessageModel.get(assistantIndex).messageId;
@@ -691,11 +812,16 @@ Item {
         if (model && model.trim() !== "")
             innerCmd += " --model " + TextHelpers.escapeShellArg(model);
 
+        // Continue existing session if available
+        if (opencodeSessionId !== "")
+            innerCmd += " --session " + TextHelpers.escapeShellArg(opencodeSessionId);
+
         // Use a unique temp log file for this run so output can be tailed in real-time
         var logFile = "/tmp/kde_opencode_" + Date.now() + ".log";
         opencodeLogFile = logFile;
         opencodePollingAssistantIndex = assistantIndex;
         opencodeRunning = true;
+        _opencodeCapturedSessionId = capturedSessionId;
 
         // Wrap command: pipe both stdout+stderr through tee to logfile, then append EXIT sentinel
         // Use script -q -c '...' /dev/null to force a PTY so opencode flushes output
@@ -707,11 +833,13 @@ Item {
 
         // Start the polling timer
         opencodeStreamPoller.start();
+        opencodeTimeout.start();
 
         // Execute the wrapped command (callback fires when process exits)
         var opencodeCallback = function opencodeCallback(stdout, stderr, exitCode) {
-            // Stop polling
+            // Stop polling and timeout
             opencodeStreamPoller.stop();
+            opencodeTimeout.stop();
             opencodeRunning = false;
 
             // Do one final read of the log file to get complete output
@@ -728,10 +856,20 @@ Item {
                     cleanOutput = "(No output)";
 
                 var statusStr = realExitCode === 0 ? "done" : "failed";
-                chatMessageModel.setProperty(assistantIndex, "approvalStatus", statusStr);
-                chatMessageModel.setProperty(assistantIndex, "approvalResult", cleanOutput);
+                // Guard: model may have been cleared if user switched sessions
+                if (assistantIndex < chatMessageModel.count) {
+                    chatMessageModel.setProperty(assistantIndex, "approvalStatus", statusStr);
+                    chatMessageModel.setProperty(assistantIndex, "approvalResult", cleanOutput);
+                }
 
-                var mid = chatMessageModel.get(assistantIndex).messageId;
+                // Extract session ID from output for continuity across runs
+                if (opencodeSessionId === "") {
+                    var sessionMatch = cleanOutput.match(/ses_[0-9a-f]{24}/);
+                    if (sessionMatch)
+                        opencodeSessionId = sessionMatch[0];
+                }
+
+                var mid = assistantIndex < chatMessageModel.count ? chatMessageModel.get(assistantIndex).messageId : null;
                 if (mid && mid !== "") {
                     var updatedJson = JSON.stringify({
                         "instruction": instruction,
@@ -743,24 +881,23 @@ Item {
                     Db.updateMessageContent(db, mid, updatedJson);
                 }
 
-                var dbText;
-                if (realExitCode === 0)
-                    dbText = "✅ **OpenCode run completed successfully.**\n\nInstruction: `" + instruction + "`\n\n**Output:**\n```\n" + cleanOutput.trim() + "\n```";
-                else
-                    dbText = "❌ **OpenCode run failed (Exit code: " + realExitCode + ").**\n\nInstruction: `" + instruction + "`\n\n**Output:**\n```\n" + cleanOutput.trim() + "\n```";
-
-                Db.saveMessage(db, currentSessionId, "assistant", dbText);
                 loadSessionList();
 
                 // Clean up temp log file
                 executeCommandLine("rm -f " + TextHelpers.escapeShellArg(logFile));
 
-                var updatedMessages = buildMessageArray();
-                updatedMessages.push({
-                    "role": "system",
-                    "content": "OpenCode execution finished. Instruction: \"" + instruction + "\". Status: " + (realExitCode === 0 ? "Success" : "Failed") + ". Output:\n" + cleanOutput
-                });
-                resumeStreaming(updatedMessages);
+                // Resume streaming if still on the same session
+                if (_isSessionActive(capturedSessionId)) {
+                    var updatedMessages = buildMessageArray();
+                    updatedMessages.push({
+                        "role": "system",
+                        "content": "OpenCode execution finished. Instruction: \"" + instruction + "\". Status: " + (realExitCode === 0 ? "Success" : "Failed") + ". Output:\n" + cleanOutput
+                    });
+                    resumeStreaming(updatedMessages);
+                } else {
+                    Db.saveMessage(db, capturedSessionId, "system", "OpenCode execution finished. Instruction: \"" + instruction + "\". Status: " + (realExitCode === 0 ? "Success" : "Failed") + ". Output:\n" + cleanOutput);
+                    loadSessionList();
+                }
             });
         };
 
@@ -768,8 +905,9 @@ Item {
     }
 
     function declineOpenCode(instruction, assistantIndex) {
-        chatMessageModel.setProperty(assistantIndex, "approvalStatus", "declined");
-        var messageId = chatMessageModel.get(assistantIndex).messageId;
+        if (assistantIndex < chatMessageModel.count)
+            chatMessageModel.setProperty(assistantIndex, "approvalStatus", "declined");
+        var messageId = assistantIndex < chatMessageModel.count ? chatMessageModel.get(assistantIndex).messageId : null;
         if (messageId && messageId !== "") {
             var files = chatMessageModel.get(assistantIndex).opencodeFiles || "";
             var model = chatMessageModel.get(assistantIndex).opencodeModel || "";
@@ -782,8 +920,6 @@ Item {
             });
             Db.updateMessageContent(db, messageId, updatedJson);
         }
-        var text = "❌ OpenCode execution declined by user.";
-        Db.saveMessage(db, currentSessionId, "assistant", text);
         loadSessionList();
         var updatedMessages = buildMessageArray();
         updatedMessages.push({
@@ -870,6 +1006,8 @@ Item {
         if (isStreaming) {
             Api.abortActiveRequest();
             isStreaming = false;
+            var targetSessionId = streamingSessionId || currentSessionId;
+            streamingSessionId = "";
             if (chatMessageModel.count > 0) {
                 var lastIndex = chatMessageModel.count - 1;
                 var lastMsg = chatMessageModel.get(lastIndex);
@@ -879,7 +1017,7 @@ Item {
                         textToSave = "_Stopped by user_";
                         chatMessageModel.setProperty(lastIndex, "content", textToSave);
                     }
-                    Db.saveMessage(db, currentSessionId, "assistant", textToSave);
+                    Db.saveMessage(db, targetSessionId, "assistant", textToSave);
                 }
             }
             loadSessionList();
@@ -962,13 +1100,24 @@ Item {
     }
 
     function loadSession(sessionId, sessionTitle) {
-        stopStreamingAndSave();
-        chatMessageModel.clear();
+        if (sessionId === currentSessionId)
+            return;
+
+        // Save current session metadata before switching
+        if (currentSessionId !== "")
+            _saveSessionState(currentSessionId);
+
         pendingAttachments = [];
         pendingAttachmentsChanged();
         recentlyCreatedTaskTitles = [];
         currentSessionId = sessionId;
         currentSessionTitle = sessionTitle;
+
+        // Restore metadata/streaming state if this session had background work
+        _restoreSessionState(sessionId);
+
+        // Always load messages from DB (background callbacks already saved there)
+        chatMessageModel.clear();
         var msgs = Db.loadMessages(db, sessionId);
         for (var i = 0; i < msgs.length; i++) {
             var role = msgs[i].role;
@@ -1011,6 +1160,7 @@ Item {
             var opencodeModel = "";
             var opencodeStatus = "pending";
             var opencodeOutput = "";
+            var preservedThinkingFromDb = "";
             if (isOpenCodeMsg) {
                 try {
                     var opParsed = JSON.parse(content);
@@ -1019,6 +1169,19 @@ Item {
                     opencodeModel = opParsed.model || "";
                     opencodeStatus = opParsed.status || "pending";
                     opencodeOutput = opParsed.output || "";
+                    preservedThinkingFromDb = opParsed.thinking || "";
+                    // If status was "running" in DB, the process was lost (e.g. Plasma restart)
+                    // Mark it as failed since we can't recover the process
+                    if (opencodeStatus === "running") {
+                        opencodeStatus = "failed";
+                        if (!opencodeOutput || opencodeOutput.trim() === "")
+                            opencodeOutput = "(Process lost — Plasma was restarted while OpenCode was running)";
+                        opParsed.status = opencodeStatus;
+                        opParsed.output = opencodeOutput;
+                        content = JSON.stringify(opParsed);
+                        // Update DB to reflect the recovered status
+                        Db.updateMessageContent(db, msgs[i].id, content);
+                    }
                     content = "";
                 } catch (e) {
                     opencodeInstruction = content;
@@ -1040,6 +1203,7 @@ Item {
             msg.opencodeModel = opencodeModel;
             msg.approvalStatus = opencodeStatus;
             msg.approvalResult = opencodeOutput;
+            msg.thinkingText = preservedThinkingFromDb;
             chatMessageModel.append(msg);
         }
         _syncChatMessages();
@@ -1088,9 +1252,13 @@ Item {
             chatPage.positionViewAtEnd();
         });
         isStreaming = true;
+        streamingSessionId = currentSessionId;
         var config = getApiConfig();
+        var capturedSessionId = currentSessionId;
         Api.sendMessage(buildMessageArray(), config, function(accumulated) {
             // onStreaming — update the last message in-place
+            if (!_isSessionActive(capturedSessionId))
+                return;
             if (assistantIndex < chatMessageModel.count)
                 chatMessageModel.setProperty(assistantIndex, "content", TextHelpers.preprocessMarkdown(accumulated));
 
@@ -1098,10 +1266,36 @@ Item {
         }, function(finalText, usage) {
             // onComplete
             isStreaming = false;
+            streamingSessionId = "";
             if (usage && usage.total_tokens) {
                 contextUsedChars = usage.total_tokens;
                 contextUsagePercent = Math.min(100, Math.round((usage.total_tokens / contextMaxChars) * 100));
             }
+            // If user switched sessions, save tool call messages correctly
+            if (!_isSessionActive(capturedSessionId)) {
+                var bgCmdTag = TextHelpers.parseCommandTag(finalText);
+                if (bgCmdTag) {
+                    var bgRole = bgCmdTag.type === "opencode" ? "opencode_approval" : bgCmdTag.type === "setting" ? "setting_approval" : bgCmdTag.type === "system" ? "system_command" : "assistant";
+                    var bgContent = finalText;
+                    if (bgCmdTag.type === "opencode") {
+                        bgContent = JSON.stringify({
+                            "instruction": bgCmdTag.instruction,
+                            "files": bgCmdTag.files || "",
+                            "model": bgCmdTag.model || "",
+                            "status": "pending",
+                            "output": ""
+                        });
+                    } else if (bgCmdTag.type === "setting") {
+                        bgContent = bgCmdTag.command + "\n\n" + bgCmdTag.description;
+                    }
+                    Db.saveMessage(db, capturedSessionId, bgRole, bgContent);
+                } else {
+                    Db.saveMessage(db, capturedSessionId, "assistant", finalText);
+                }
+                loadSessionList();
+                return ;
+            }
+            Db.saveMessage(db, capturedSessionId, "assistant", finalText);
             var allTaskTags = TextHelpers.parseAllCommandTags(finalText);
             if (allTaskTags.length > 0) {
                 var filteredTags = [];
@@ -1112,7 +1306,9 @@ Item {
 
                 }
                 if (filteredTags.length > 0) {
-                    handleMultipleTaskCommands(filteredTags, assistantIndex, finalText);
+                    if (assistantIndex < chatMessageModel.count)
+                        handleMultipleTaskCommands(filteredTags, assistantIndex, finalText);
+                    loadSessionList();
                     return ;
                 }
             }
@@ -1121,32 +1317,30 @@ Item {
                 if (cmdTag.type === "task" || cmdTag.type === "add_task") {
                     var tt = (cmdTag.title || "").trim().toLowerCase();
                     if (tt && recentlyCreatedTaskTitles.indexOf(tt) !== -1) {
-                        if (assistantIndex < chatMessageModel.count)
-                            chatMessageModel.setProperty(assistantIndex, "content", "");
-
-                        chatPage.positionViewAtEnd();
                         loadSessionList();
                         return ;
                     }
                 }
-                handleParsedCommand(cmdTag, assistantIndex);
+                if (assistantIndex < chatMessageModel.count)
+                    handleParsedCommand(cmdTag, assistantIndex);
+                else
+                    loadSessionList();
                 return ;
             }
             if (assistantIndex < chatMessageModel.count) {
                 var processed = TextHelpers.preprocessMarkdown(finalText);
                 chatMessageModel.setProperty(assistantIndex, "content", processed);
-                Db.saveMessage(db, currentSessionId, "assistant", finalText);
             }
-            chatPage.positionViewAtEnd();
             loadSessionList();
         }, function(errorMsg) {
             // onError
             isStreaming = false;
-            if (assistantIndex < chatMessageModel.count) {
+            streamingSessionId = "";
+            if (_isSessionActive(capturedSessionId) && assistantIndex < chatMessageModel.count) {
                 chatMessageModel.setProperty(assistantIndex, "content", errorMsg);
                 chatMessageModel.setProperty(assistantIndex, "isError", true);
+                chatPage.positionViewAtEnd();
             }
-            chatPage.positionViewAtEnd();
         });
     }
 
@@ -1205,6 +1399,8 @@ Item {
     Component.onCompleted: {
         db = LS.LocalStorage.openDatabaseSync("KDEAssistant", "1.0", "KDE Assistant Chat History", 1e+07);
         Db.initDatabase(db);
+        // Kill any orphaned opencode processes from previous Plasma sessions
+        commandRunner.execute("pkill -f 'opencode run' 2>/dev/null || true");
         loadSessionList();
         loadMemoryList();
         // Load the most recent session, or create a new one if none exist
@@ -1622,13 +1818,58 @@ Item {
                 var clean = stripAnsiCodes(raw);
                 // Remove sentinel line if present (means process finished; timer will be stopped by callback)
                 clean = clean.replace(/__OPENCODE_EXIT_\d+__\n?/g, "");
-                if (idx >= 0 && idx < chatMessageModel.count) {
+                // Only update model if we're still on the same session
+                if (_isSessionActive(_opencodeCapturedSessionId) && idx >= 0 && idx < chatMessageModel.count) {
                     var current = chatMessageModel.get(idx).approvalResult || "";
                     if (clean !== current)
                         chatMessageModel.setProperty(idx, "approvalResult", clean);
-
                 }
             });
+        }
+    }
+
+    Timer {
+        id: opencodeTimeout
+
+        interval: 300000 // 5 minutes
+        repeat: false
+        running: false
+        onTriggered: {
+            if (!opencodeRunning)
+                return;
+
+            console.log("OpenCode: Process timed out after 5 minutes, killing...");
+            opencodeStreamPoller.stop();
+            opencodeRunning = false;
+
+            var idx = opencodePollingAssistantIndex;
+            if (idx >= 0 && idx < chatMessageModel.count) {
+                chatMessageModel.setProperty(idx, "approvalStatus", "failed");
+                chatMessageModel.setProperty(idx, "approvalResult", "(Timed out after 5 minutes)");
+
+                var mid = chatMessageModel.get(idx).messageId;
+                if (mid && mid !== "") {
+                    var instruction = chatMessageModel.get(idx).opencodeInstruction || "";
+                    var files = chatMessageModel.get(idx).opencodeFiles || "";
+                    var model = chatMessageModel.get(idx).opencodeModel || "";
+                    var timeoutJson = JSON.stringify({
+                        "instruction": instruction,
+                        "files": files,
+                        "model": model,
+                        "status": "failed",
+                        "output": "(Timed out after 5 minutes)"
+                    });
+                    Db.updateMessageContent(db, mid, timeoutJson);
+                }
+            }
+
+            // Kill any lingering opencode processes
+            executeCommandLine("pkill -f 'opencode run' || true");
+            if (opencodeLogFile !== "") {
+                executeCommandLine("rm -f " + TextHelpers.escapeShellArg(opencodeLogFile));
+                opencodeLogFile = "";
+            }
+            loadSessionList();
         }
     }
 

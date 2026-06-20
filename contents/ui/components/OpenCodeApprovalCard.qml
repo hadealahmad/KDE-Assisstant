@@ -235,6 +235,10 @@ ColumnLayout {
                 if (selectedModel !== "") {
                     cmd += " --model \"" + selectedModel + "\"";
                 }
+                // Show --session flag if continuing an existing session
+                if (typeof fullRepRoot !== "undefined" && fullRepRoot && fullRepRoot.opencodeSessionId !== "") {
+                    cmd += " --session " + fullRepRoot.opencodeSessionId;
+                }
                 return cmd;
             }
             color: root.approvalStatus === "running" ? Kirigami.Theme.disabledTextColor : Kirigami.Theme.textColor
@@ -271,13 +275,27 @@ ColumnLayout {
     // Collapsible Output Block
     CollapsibleBlock {
         Layout.fillWidth: true
-        visible: root.approvalStatus === "done" || root.approvalStatus === "failed" || (root.approvalStatus === "running" && root.approvalResult !== "")
-        title: {
+        visible: root.approvalStatus === "running" || root.approvalStatus === "done" || root.approvalStatus === "failed"
+        title: "Execution Output"
+        statusText: {
             if (root.approvalStatus === "running")
-                return "Executing (Real-time Console)...";
-            return "Execution Output";
+                return "Running";
+            if (root.approvalStatus === "done")
+                return "Done";
+            if (root.approvalStatus === "failed")
+                return "Failed";
+            return "";
         }
-        expanded: root.resultExpanded || (root.approvalStatus === "running" && root.approvalResult !== "")
+        statusColor: {
+            if (root.approvalStatus === "running")
+                return Kirigami.Theme.highlightColor;
+            if (root.approvalStatus === "done")
+                return Kirigami.Theme.positiveTextColor;
+            if (root.approvalStatus === "failed")
+                return Kirigami.Theme.negativeTextColor;
+            return "transparent";
+        }
+        expanded: root.resultExpanded
         onExpandedChanged: root.resultExpanded = expanded
 
         contentItem: TextEdit {

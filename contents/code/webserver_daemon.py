@@ -897,6 +897,16 @@ class WebServerHandler(BaseHTTPRequestHandler):
                         command += " -f " + shlex.quote(f)
             if model:
                 command += " --model " + shlex.quote(model)
+            
+            # Session continuity: reuse existing session ID if available
+            session_id_file = "/tmp/kde_opencode_session_id"
+            try:
+                with open(session_id_file, 'r') as sf:
+                    existing_session_id = sf.read().strip()
+                    if existing_session_id:
+                        command += " --session " + shlex.quote(existing_session_id)
+            except FileNotFoundError:
+                pass
         else:
             command = parsed.get("command", "")
         now = int(time.time() * 1000)
@@ -926,6 +936,15 @@ class WebServerHandler(BaseHTTPRequestHandler):
             if result.stderr:
                 output += "\n--- STDERR ---\n" + result.stderr
             status = "completed" if result.returncode == 0 else "error"
+            
+            # Extract and store session ID for continuity across runs
+            if "instruction" in parsed:
+                import re
+                session_match = re.search(r'ses_[0-9a-f]{24}', output)
+                if session_match:
+                    session_id_file = "/tmp/kde_opencode_session_id"
+                    with open(session_id_file, 'w') as sf:
+                        sf.write(session_match.group(0))
         except subprocess.TimeoutExpired:
             output = f"Command timed out after {cmd_timeout} seconds."
             status = "error"

@@ -197,6 +197,7 @@ Item {
                     opencodeInstruction: delegateRoot.modelData.opencodeInstruction ?? ""
                     opencodeFiles: delegateRoot.modelData.opencodeFiles ?? ""
                     opencodeModel: delegateRoot.modelData.opencodeModel ?? ""
+                    preservedThinkingText: delegateRoot.modelData.thinkingText ?? ""
                     onApproveSettingRequested: function(command, description, index) {
                         chatPageRoot.approveSettingRequested(command, description, index);
                     }

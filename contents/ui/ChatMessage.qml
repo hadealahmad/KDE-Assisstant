@@ -72,12 +72,17 @@ Kirigami.AbstractCard {
     }
     readonly property bool hasTextAttachments: textAttachments.length > 0
     property bool thinkingExpanded: false
+    property string preservedThinkingText: ""
     readonly property string startTag: "<thinking>"
     readonly property string endTag: "</thinking>"
     readonly property int startIndex: messageText.indexOf(startTag)
     readonly property int endIndex: startIndex !== -1 ? messageText.indexOf(endTag, startIndex + startTag.length) : -1
-    readonly property bool hasThinking: startIndex !== -1
+    readonly property bool hasThinking: startIndex !== -1 || (root.preservedThinkingText !== "")
     readonly property string thinkingText: {
+        // Use preserved thinkingText if set (from model after role change)
+        if (root.preservedThinkingText !== "")
+            return root.preservedThinkingText;
+
         if (!hasThinking)
             return "";
 

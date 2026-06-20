@@ -4,7 +4,7 @@ A feature-rich AI chat plasmoid for **KDE Plasma 6**. Lives in your panel or des
 
 ## Features
 
-- **Multi-Provider API Support** — OpenRouter, OpenAI, Gemini, LM Studio, Ollama, Llama.cpp, or custom endpoints with model auto-discovery
+- **Multi-Provider API Support** — OpenRouter, OpenAI, Gemini, LM Studio, Ollama, llama.cpp, or custom endpoints with model auto-discovery
 - **Memory System** — Ask the assistant to remember things; persisted locally and injected into context automatically
 - **Task Management** — Groups, priorities, due dates, recurrence, subtasks. Create manually or let the AI create them conversationally
 - **Voice Typing** — Speech-to-text via local Whisper.cpp, remote Whisper API, or LM Studio
@@ -12,6 +12,7 @@ A feature-rich AI chat plasmoid for **KDE Plasma 6**. Lives in your panel or des
 - **File Attachments** — Text, images, and PDFs with drag-and-drop support
 - **Web & Code Search** — DuckDuckGo, Tavily, Searxng, Google, plus local grep/ripgrep
 - **Shell Execution** — AI can run commands with approve/reject approval flow
+- **OpenCode Integration** — Autonomous coding agent with user approval, real-time output streaming, session continuity, and multi-model selection
 - **Context Tracker** — Real-time token usage display with color-coded indicators
 - **Window Pinning** — Keep the chat floating above other windows
 - **Local Persistence** — All sessions, messages, memories, and tasks saved in SQLite
@@ -45,7 +46,7 @@ contents/
 │   ├── StreamingManager.js     # API config, message array building
 │   ├── SttHandler.js           # Speech-to-text command building
 │   ├── TaskCommandHandler.js   # Task option building, validation
-│   ├── TextHelpers.js          # Markdown, command tag parsing
+│   ├── TextHelpers.js          # Markdown, command tag parsing (incl. opencode tags)
 │   └── whisper_daemon.py       # DBus daemon for live STT
 ├── config/
 │   └── config.qml              # Settings UI routing
@@ -62,7 +63,6 @@ contents/
     ├── AddEditGroupDialog.qml  # Group create/edit dialog
     ├── ConfigGeneral.qml       # Settings page
     ├── PageHeader.qml          # Reusable header component
-    ├── CollapsibleBlock.qml    # Expandable content block
     └── components/             # Decoupled UI & logic components
         ├── CommandRunner.qml          # Non-visual shell execution manager
         ├── SpeechToTextManager.qml    # Non-visual voice recording lifecycle
@@ -71,8 +71,10 @@ contents/
         ├── PendingAttachmentsBar.qml  # Preview strip for staged files
         ├── ContextUsageHeader.qml     # Active model & context tracking bar
         ├── ThinkingBlock.qml          # Collapsible LLM thoughts display
+        ├── CollapsibleBlock.qml       # Expandable content block with status badge
         ├── SettingApprovalCard.qml    # Security prompt card for settings changes
         ├── SystemCommandCard.qml      # CLI run status & output log box
+        ├── OpenCodeApprovalCard.qml   # OpenCode autonomous coding approval & output
         ├── MemoryCard.qml             # Inline memory card delegate
         └── TaskCard.qml               # Inline task creation notification card
 ```
@@ -81,7 +83,7 @@ contents/
 
 Detailed architectural and configuration guidelines are available in the [documentation/](file:///run/media/hadi/SSD2/Coding/KDE%20Assisstant/documentation/) directory:
 - [Software Architecture Map](file:///run/media/hadi/SSD2/Coding/KDE%20Assisstant/documentation/software_map.md): High-level layout of Plasmoid-to-Daemon sync, SSE connections, process priorities, and DB watchers.
-- [Features and Tool Integrations](file:///run/media/hadi/SSD2/Coding/KDE%20Assisstant/documentation/features_and_tools.md): Breakdown of conversational tool tags (FETCH, GREP, SYSTEM, SETTINGS, REMEMBER, TASKS), success/fail notification flows, and STT/TTS bridges.
+- [Features and Tool Integrations](file:///run/media/hadi/SSD2/Coding/KDE%20Assisstant/documentation/features_and_tools.md): Breakdown of conversational tool tags (FETCH, GREP, SYSTEM, SETTINGS, REMEMBER, TASKS, OpenCode), success/fail notification flows, and STT/TTS bridges.
 - [Database Schema & Offline Storage](file:///run/media/hadi/SSD2/Coding/KDE%20Assisstant/documentation/database_schema.md): Schema blueprints of sessions, messages (with serialized JSON payloads), memories, groups, and tasks.
 - [Configuration and Settings](file:///run/media/hadi/SSD2/Coding/KDE%20Assisstant/documentation/configuration.md): Deep-dive into KConfig general properties, search keys, and local directories.
 

@@ -44,6 +44,20 @@ Registers a comprehensive task item.
 - **Format:** `[ADD_TASK: title group="Group" priority=high|medium|low due="YYYY-MM-DD" description="details" recurrence=daily|weekly|monthly|yearly]`
 - **Example:** `[ADD_TASK: Weekly Sync group="Work" priority=medium due="2026-06-20" recurrence=weekly]`
 
+### OpenCode Autonomous Coding (`[opencode:]`)
+Triggers the OpenCode autonomous coding agent to perform code changes with user approval.
+- **Format:** `[opencode: instruction files="file1,file2" model="model_name"]`
+- **Example:** `[opencode: Add error handling to the API client files="src/api.js,src/utils.js" model="opencode/mimo-v2.5-free"]`
+- **Flow:**
+  1. LLM outputs the `[opencode:...]` tag and halts generation.
+  2. The tag is parsed by `TextHelpers.js` (QML) or `webserver_daemon.py` (web).
+  3. An approval card is displayed showing the instruction, files, and model selector.
+  4. User approves or declines. On approve, `opencode run` executes with `--dangerously-skip-permissions`.
+  5. Output streams in real-time to a collapsible log panel (collapsed by default, with status badge).
+  6. On completion, the result is saved to the database and the LLM is resumed with the output context.
+- **Session Continuity:** The first run captures the OpenCode session ID. Subsequent runs in the same KDE Assistant session reuse the same OpenCode session via `--session <id>`, maintaining conversation context across multiple coding tasks.
+- **Model Selection:** Users can choose from preset models (opencode/mimo-v2.5-free, opencode/deepseek-v4-flash-free, opencode/claude-sonnet-4-6, opencode/gpt-5.4-mini, ollama/gemma4) or enter a custom model before approval.
+
 ---
 
 ## 2. Notification and Error Handling

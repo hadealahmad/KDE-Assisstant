@@ -7,6 +7,8 @@ ColumnLayout {
     id: root
 
     property string title: ""
+    property string statusText: ""
+    property color statusColor: "transparent"
     property alias contentItem: contentPanel.contentItem
     property bool expanded: false
     property alias panelColor: contentPanel.color
@@ -41,6 +43,25 @@ ColumnLayout {
                 font.bold: true
                 font.pointSize: Kirigami.Theme.smallFont.pointSize
                 color: Kirigami.Theme.disabledTextColor
+            }
+
+            Rectangle {
+                visible: root.statusText !== ""
+                Layout.preferredWidth: statusLabel.implicitWidth + Kirigami.Units.smallSpacing * 4
+                Layout.preferredHeight: statusLabel.implicitHeight + Kirigami.Units.smallSpacing * 1.5
+                radius: height / 2
+                color: Qt.rgba(root.statusColor.r, root.statusColor.g, root.statusColor.b, 0.15)
+                border.color: Qt.rgba(root.statusColor.r, root.statusColor.g, root.statusColor.b, 0.4)
+                border.width: 1
+
+                Controls.Label {
+                    id: statusLabel
+                    anchors.centerIn: parent
+                    text: root.statusText
+                    font.pointSize: Kirigami.Theme.smallFont.pointSize - 1
+                    font.bold: true
+                    color: root.statusColor
+                }
             }
 
             Item {

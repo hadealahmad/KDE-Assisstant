@@ -105,10 +105,12 @@ Stores individual conversation blocks.
   - `"task"`: Inline task creation alerts.
   - `"system_command"`: Interactive CLI results.
   - `"setting_approval"`: Command change requests.
+  - `"opencode_approval"`: OpenCode autonomous coding approval cards.
 - `content` (TEXT NOT NULL): The text payload. For cards, contains a JSON-serialized object:
   - **Memory Card:** `{"id": "mem_xxx", "content": "fact content"}`
   - **Task Card:** `{"taskId": "task_xxx", "title": "...", "groupId": "...", "priority": 0, "dueDate": ""}`
   - **System Command Card:** `{"command": "...", "output": "...", "status": "success|failed|running|pending"}`
+  - **OpenCode Card:** `{"instruction": "...", "files": "...", "model": "...", "status": "pending|running|done|failed|declined", "output": "..."}`
 - `timestamp` (INTEGER NOT NULL): Milliseconds since epoch.
 
 ### Table: `memories`

@@ -51,6 +51,15 @@ The desktop client runs inside the KDE Plasma environment (typically hosted by `
   - `SpeechToTextManager.qml` manages microphone input and Whisper transcription.
   - `TextToSpeechManager.qml` sanitizes response text and invokes Speech Dispatcher or Piper.
 
+### OpenCode Autonomous Coding Integration
+The OpenCode feature enables the AI to propose and execute code changes autonomously:
+- **Command Tag:** The LLM outputs `[opencode: instruction files="..." model="..."]` which is parsed by `TextHelpers.js`.
+- **Approval Flow:** `OpenCodeApprovalCard.qml` renders the approval UI with model selection. User approves or declines.
+- **Execution:** `FullRepresentation.qml` builds the `opencode run` command, wraps it with `script -q -c` for PTY support, and pipes output through `tee` to a temp log file.
+- **Real-time Streaming:** A 1500ms polling timer (`opencodeStreamPoller`) reads the log file, strips ANSI codes, and updates the UI.
+- **Session Continuity:** The first run captures the OpenCode session ID from the output. Subsequent runs pass `--session <id>` to maintain conversation context.
+- **Web Daemon Support:** `webserver_daemon.py` handles the same flow for the mobile web UI, storing the session ID in `/tmp/kde_opencode_session_id`.
+
 ---
 
 ## 2. Webserver Daemon

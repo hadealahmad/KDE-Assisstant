@@ -155,6 +155,17 @@ function escapeShellArg(arg) {
     return "'" + arg.replace(/'/g, "'\\''") + "'";
 }
 
+function extractThinkingText(text) {
+    if (!text) return "";
+    var start = text.indexOf("<thinking>");
+    if (start === -1) return "";
+    var end = text.indexOf("</thinking>", start + 10);
+    if (end !== -1)
+        return text.substring(start + 10, end).trim();
+    else
+        return text.substring(start + 10).trim();
+}
+
 function createDefaultMessage(role, content) {
     return {
         role: role || "assistant",
@@ -177,6 +188,7 @@ function createDefaultMessage(role, content) {
         taskDueDate: "",
         opencodeInstruction: "",
         opencodeFiles: "",
-        opencodeModel: ""
+        opencodeModel: "",
+        thinkingText: ""
     };
 }
