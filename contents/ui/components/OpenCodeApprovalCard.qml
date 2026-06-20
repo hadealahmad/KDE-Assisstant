@@ -22,6 +22,7 @@ ColumnLayout {
 
     signal approved(string instruction, string files, string model)
     signal declined(string instruction)
+    signal stopped()
 
     Layout.fillWidth: true
     Layout.leftMargin: Kirigami.Units.gridUnit * 2
@@ -269,6 +270,18 @@ ColumnLayout {
                 var modelToUse = modelComboBox.getSelectedModelValue();
                 root.approved(root.opencodeInstruction, root.opencodeFiles, modelToUse);
             }
+        }
+    }
+
+    RowLayout {
+        spacing: Kirigami.Units.smallSpacing
+        Layout.alignment: Qt.AlignRight
+        visible: root.approvalStatus === "running"
+
+        Controls.Button {
+            text: "Stop"
+            icon.name: "process-stop"
+            onClicked: root.stopped()
         }
     }
 

@@ -62,6 +62,7 @@ Item {
     signal declineSettingRequested(string description, int index)
     signal approveOpenCodeRequested(string instruction, string files, string model, int index)
     signal declineOpenCodeRequested(string instruction, int index)
+    signal stopOpenCodeRequested(int index)
     signal deleteMemoryRequested(string memoryId, int index)
     signal openFileRequested(string filePath)
     signal openAttachmentRequested(var attachment)
@@ -209,6 +210,9 @@ Item {
                     }
                     onDeclineOpenCodeRequested: function(instruction, index) {
                         chatPageRoot.declineOpenCodeRequested(instruction, index);
+                    }
+                    onStopOpenCodeRequested: function(index) {
+                        chatPageRoot.stopOpenCodeRequested(index);
                     }
                     onDeleteMemoryRequested: function(memoryId, index) {
                         chatPageRoot.deleteMemoryRequested(memoryId, index);

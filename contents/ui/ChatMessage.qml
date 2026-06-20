@@ -122,6 +122,7 @@ Kirigami.AbstractCard {
     signal declineSettingRequested(string description, int index)
     signal approveOpenCodeRequested(string instruction, string files, string model, int index)
     signal declineOpenCodeRequested(string instruction, int index)
+    signal stopOpenCodeRequested(int index)
     signal deleteMemoryRequested(string memoryId, int index)
     signal viewTasksRequested()
     signal openFileRequested(string filePath)
@@ -347,6 +348,9 @@ Kirigami.AbstractCard {
             }
             onDeclined: function(inst) {
                 root.declineOpenCodeRequested(inst, root.messageIndex);
+            }
+            onStopped: {
+                root.stopOpenCodeRequested(root.messageIndex);
             }
         }
 

@@ -57,6 +57,7 @@ The OpenCode feature enables the AI to propose and execute code changes autonomo
 - **Approval Flow:** `OpenCodeApprovalCard.qml` renders the approval UI with model selection. User approves or declines.
 - **Execution:** `FullRepresentation.qml` builds the `opencode run` command, wraps it with `script -q -c` for PTY support, and pipes output through `tee` to a temp log file.
 - **Real-time Streaming:** A 1500ms polling timer (`opencodeStreamPoller`) reads the log file, strips ANSI codes, and updates the UI.
+- **Manual Stop:** A Stop button appears while the process is running. Clicking it kills the process via `pkill`, marks the status as `"failed"` with output `"(Stopped by user)"`, and cleans up the temp log file.
 - **Session Continuity:** The first run captures the OpenCode session ID from the output. Subsequent runs pass `--session <id>` to maintain conversation context.
 - **Web Daemon Support:** `webserver_daemon.py` handles the same flow for the mobile web UI, storing the session ID in `/tmp/kde_opencode_session_id`.
 

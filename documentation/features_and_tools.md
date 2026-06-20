@@ -54,7 +54,8 @@ Triggers the OpenCode autonomous coding agent to perform code changes with user 
   3. An approval card is displayed showing the instruction, files, and model selector.
   4. User approves or declines. On approve, `opencode run` executes with `--dangerously-skip-permissions`.
   5. Output streams in real-time to a collapsible log panel (collapsed by default, with status badge).
-  6. On completion, the result is saved to the database and the LLM is resumed with the output context.
+  6. User can stop a running process at any time via the Stop button. The process is killed and the status is marked as `"failed"` with output `"(Stopped by user)"`.
+  7. On completion, the result is saved to the database and the LLM is resumed with the output context.
 - **Session Continuity:** The first run captures the OpenCode session ID. Subsequent runs in the same KDE Assistant session reuse the same OpenCode session via `--session <id>`, maintaining conversation context across multiple coding tasks.
 - **Model Selection:** Users can choose from preset models (opencode/mimo-v2.5-free, opencode/deepseek-v4-flash-free, opencode/claude-sonnet-4-6, opencode/gpt-5.4-mini, ollama/gemma4) or enter a custom model before approval.
 

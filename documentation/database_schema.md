@@ -110,7 +110,7 @@ Stores individual conversation blocks.
   - **Memory Card:** `{"id": "mem_xxx", "content": "fact content"}`
   - **Task Card:** `{"taskId": "task_xxx", "title": "...", "groupId": "...", "priority": 0, "dueDate": ""}`
   - **System Command Card:** `{"command": "...", "output": "...", "status": "success|failed|running|pending"}`
-  - **OpenCode Card:** `{"instruction": "...", "files": "...", "model": "...", "status": "pending|running|done|failed|declined", "output": "..."}`
+  - **OpenCode Card:** `{"instruction": "...", "files": "...", "model": "...", "status": "pending|running|done|failed|declined", "output": "..."}` — Status values: `"pending"` (awaiting approval), `"running"` (executing), `"done"` (success), `"failed"` (error, timeout, or manually stopped), `"declined"` (user rejected). Output for manual stop: `"(Stopped by user)"`. Output for timeout: `"(Timed out after 5 minutes)"`. Output for Plasma restart: `"(Process lost — Plasma was restarted while OpenCode was running)"`.
 - `timestamp` (INTEGER NOT NULL): Milliseconds since epoch.
 
 ### Table: `memories`

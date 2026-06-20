@@ -929,6 +929,43 @@ Item {
         resumeStreaming(updatedMessages);
     }
 
+    function stopOpenCode(assistantIndex) {
+        if (!opencodeRunning)
+            return;
+
+        console.log("OpenCode: Process stopped by user");
+        opencodeStreamPoller.stop();
+        opencodeTimeout.stop();
+        opencodeRunning = false;
+
+        if (assistantIndex >= 0 && assistantIndex < chatMessageModel.count) {
+            chatMessageModel.setProperty(assistantIndex, "approvalStatus", "failed");
+            chatMessageModel.setProperty(assistantIndex, "approvalResult", "(Stopped by user)");
+
+            var mid = chatMessageModel.get(assistantIndex).messageId;
+            if (mid && mid !== "") {
+                var instruction = chatMessageModel.get(assistantIndex).opencodeInstruction || "";
+                var files = chatMessageModel.get(assistantIndex).opencodeFiles || "";
+                var model = chatMessageModel.get(assistantIndex).opencodeModel || "";
+                var stopJson = JSON.stringify({
+                    "instruction": instruction,
+                    "files": files,
+                    "model": model,
+                    "status": "failed",
+                    "output": "(Stopped by user)"
+                });
+                Db.updateMessageContent(db, mid, stopJson);
+            }
+        }
+
+        executeCommandLine("pkill -f 'opencode run' || true");
+        if (opencodeLogFile !== "") {
+            executeCommandLine("rm -f " + TextHelpers.escapeShellArg(opencodeLogFile));
+            opencodeLogFile = "";
+        }
+        loadSessionList();
+    }
+
     function loadSessionList() {
         chatSessionModel.clear();
         var sessions = Db.loadSessions(db);
@@ -1585,6 +1622,9 @@ Item {
             }
             onDeclineOpenCodeRequested: function(instruction, index) {
                 fullRepRoot.declineOpenCode(instruction, index);
+            }
+            onStopOpenCodeRequested: function(index) {
+                fullRepRoot.stopOpenCode(index);
             }
             onDeleteMemoryRequested: function(memoryId, index) {
                 fullRepRoot.deleteMemory(memoryId, index);

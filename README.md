@@ -7,14 +7,16 @@ A feature-rich AI chat plasmoid for **KDE Plasma 6**. Lives in your panel or des
 - **Multi-Provider API Support** — OpenRouter, OpenAI, Gemini, LM Studio, Ollama, llama.cpp, or custom endpoints with model auto-discovery
 - **Memory System** — Ask the assistant to remember things; persisted locally and injected into context automatically
 - **Task Management** — Groups, priorities, due dates, recurrence, subtasks. Create manually or let the AI create them conversationally
-- **Voice Typing** — Speech-to-text via local Whisper.cpp, remote Whisper API, or LM Studio
+- **Voice Typing** — Speech-to-text via local Whisper.cpp (CLI or live DBus streaming), remote Whisper API, or LM Studio
 - **Read Aloud (TTS)** — Local Text-to-Speech readout supporting Speech Dispatcher (`spd-say`) and Piper Neural TTS with an integrated Hugging Face model downloader
-- **File Attachments** — Text, images, and PDFs with drag-and-drop support
+- **Multimodal Attachments** — Support for text, images, and PDFs with drag-and-drop capability. Any image provided can be used for vision tasks.
 - **Web & Code Search** — DuckDuckGo, Tavily, Searxng, Google, plus local grep/ripgrep
 - **Shell Execution** — AI can run commands with approve/reject approval flow
-- **OpenCode Integration** — Autonomous coding agent with user approval, real-time output streaming, session continuity, and multi-model selection
+- **OpenCode Integration** — Autonomous coding agent with user approval, real-time output streaming, manual stop control, session continuity, and multi-model selection
 - **Context Tracker** — Real-time token usage display with color-coded indicators
 - **Window Pinning** — Keep the chat floating above other windows
+- **Mobile Web Access** — Built-in webserver daemon serves a touch-optimized mobile UI with QR code scanning for instant connection
+- **Prayer Times** — Hijri calendar and configurable Islamic prayer times via the AlAdhan API with multiple calculation methods
 - **Local Persistence** — All sessions, messages, memories, and tasks saved in SQLite
 
 ## Installation
