@@ -67,7 +67,8 @@ function getFileUrl(appletId) {
 }
 
 function ensureDirectory(commandRunner, callback) {
-    var cmd = "mkdir -p " + TextHelpers.escapeShellArg(_appletsDir);
+    // Use double quotes so $HOME gets expanded by the shell
+    var cmd = "mkdir -p \"$HOME/.local/share/kdeassistant/applets\"";
     commandRunner.execute(cmd, function (stdout, stderr, exitCode) {
         if (callback) callback(exitCode === 0);
     });
@@ -79,11 +80,9 @@ function saveAppletFile(commandRunner, appletId, htmlContent, callback) {
             if (callback) callback(false);
             return;
         }
-        var filePath = getFilePath(appletId);
-        var content = htmlContent || "";
-        // Base64 encode then decode through shell — avoids all shell escaping issues
-        var b64 = b64Encode(content);
-        var writeCmd = "echo " + TextHelpers.escapeShellArg(b64) + " | base64 -d > " + TextHelpers.escapeShellArg(filePath);
+        var b64 = b64Encode(htmlContent || "");
+        // Use double quotes so $HOME gets expanded by the shell
+        var writeCmd = "echo " + TextHelpers.escapeShellArg(b64) + " | base64 -d > \"$HOME/.local/share/kdeassistant/applets/" + appletId + ".html\"";
         commandRunner.execute(writeCmd, function (stdout, stderr, exitCode) {
             if (callback) callback(exitCode === 0);
         });
@@ -91,8 +90,7 @@ function saveAppletFile(commandRunner, appletId, htmlContent, callback) {
 }
 
 function deleteAppletFile(commandRunner, appletId, callback) {
-    var filePath = getFilePath(appletId);
-    var cmd = "rm -f " + TextHelpers.escapeShellArg(filePath);
+    var cmd = "rm -f \"$HOME/.local/share/kdeassistant/applets/" + appletId + ".html\"";
     commandRunner.execute(cmd, function (stdout, stderr, exitCode) {
         if (callback) callback(exitCode === 0);
     });

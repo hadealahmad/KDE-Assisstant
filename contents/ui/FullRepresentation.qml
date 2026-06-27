@@ -2266,13 +2266,9 @@ Item {
             db: fullRepRoot.db
             onBackClicked: appletsViewActive = false
             onOpenApplet: function(appletId) {
-                // Resolve $HOME since file:// URLs don't expand shell variables
-                var filePath = AppletMgr.getFilePath(appletId);
-                executeCommandLine("echo " + TextHelpers.escapeShellArg(filePath), function(stdout) {
-                    var resolvedPath = stdout.trim();
-                    if (resolvedPath)
-                        Qt.openUrlExternally("file://" + resolvedPath);
-                });
+                var path = "$HOME/.local/share/kdeassistant/applets/" + appletId + ".html";
+                var resolved = path.replace("$HOME", Qt.getenv("HOME") || "/home/user");
+                Qt.openUrlExternally("file://" + resolved);
             }
             onDeleteApplet: function(appletId) {
                 fullRepRoot.deleteApplet(appletId);
