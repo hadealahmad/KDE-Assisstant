@@ -4,8 +4,10 @@
  */
 
 import "../code/ApiClient.js" as Api
+import "../code/AppletManager.js" as AppletMgr
 import "../code/AttachmentHelpers.js" as AttachmentHelpers
 import "../code/Database.js" as Db
+import "../code/JsRunner.js" as JsRunner
 import "../code/StreamingManager.js" as Streaming
 import "../code/SttHandler.js" as Stt
 import "../code/TaskCommandHandler.js" as TaskCmd
@@ -42,6 +44,7 @@ Item {
     property bool historyViewActive: false
     property bool memoriesViewActive: false
     property bool tasksViewActive: false
+    property bool appletsViewActive: false
     // ── External DB Change Sync State ──────────────────────────
     property var lastMaxSessionTime: 0
     property var lastSessionCount: 0
@@ -497,6 +500,75 @@ Item {
             chatMessageModel.setProperty(assistantIndex, "messageId", op_id);
             loadSessionList();
             chatPage.positionViewAtEnd();
+        } else if (cmdTag.type === "js_run") {
+            var currentContentJs = chatMessageModel.get(assistantIndex).content || "";
+            var preservedThinkingJs = TextHelpers.extractThinkingText(currentContentJs);
+            var autoApprove = Plasmoid.configuration.jsAutoApprove || false;
+            if (autoApprove) {
+                // Execute immediately without approval
+                chatMessageModel.setProperty(assistantIndex, "role", "js_execution");
+                chatMessageModel.setProperty(assistantIndex, "content", "⚡ Running JavaScript...");
+                chatMessageModel.setProperty(assistantIndex, "thinkingText", preservedThinkingJs);
+                chatMessageModel.setProperty(assistantIndex, "jsCode", cmdTag.code);
+                chatMessageModel.setProperty(assistantIndex, "jsStatus", "running");
+                chatMessageModel.setProperty(assistantIndex, "jsOutput", "");
+                var autoJsId = Db.saveMessage(db, currentSessionId, "js_execution", JSON.stringify({
+                    "code": cmdTag.code,
+                    "status": "running",
+                    "output": "",
+                    "thinking": preservedThinkingJs || ""
+                }));
+                chatMessageModel.setProperty(assistantIndex, "messageId", autoJsId);
+                loadSessionList();
+                _executeJsCode(cmdTag.code, assistantIndex, preservedThinkingJs);
+            } else {
+                // Show approval card
+                chatMessageModel.setProperty(assistantIndex, "role", "js_execution");
+                chatMessageModel.setProperty(assistantIndex, "content", "⚡ JavaScript Execution Request");
+                chatMessageModel.setProperty(assistantIndex, "thinkingText", preservedThinkingJs);
+                chatMessageModel.setProperty(assistantIndex, "jsCode", cmdTag.code);
+                chatMessageModel.setProperty(assistantIndex, "jsStatus", "pending");
+                chatMessageModel.setProperty(assistantIndex, "jsOutput", "");
+                var jsDbContent = JSON.stringify({
+                    "code": cmdTag.code,
+                    "status": "pending",
+                    "output": "",
+                    "thinking": preservedThinkingJs || ""
+                });
+                var jsMsgId = Db.saveMessage(db, currentSessionId, "js_execution", jsDbContent);
+                chatMessageModel.setProperty(assistantIndex, "messageId", jsMsgId);
+                loadSessionList();
+                chatPage.positionViewAtEnd();
+            }
+        } else if (cmdTag.type === "create_applet") {
+            var currentContentApplet = chatMessageModel.get(assistantIndex).content || "";
+            var preservedThinkingApplet = TextHelpers.extractThinkingText(currentContentApplet);
+            var fullResponse = currentContentApplet;
+            var htmlContent = AppletMgr.extractHtmlFromResponse(fullResponse);
+            chatMessageModel.setProperty(assistantIndex, "role", "applet_approval");
+            chatMessageModel.setProperty(assistantIndex, "content", JSON.stringify({
+                "name": cmdTag.name,
+                "description": cmdTag.description,
+                "html": htmlContent || ""
+            }));
+            chatMessageModel.setProperty(assistantIndex, "thinkingText", preservedThinkingApplet);
+            chatMessageModel.setProperty(assistantIndex, "appletName", cmdTag.name);
+            chatMessageModel.setProperty(assistantIndex, "appletDescription", cmdTag.description);
+            chatMessageModel.setProperty(assistantIndex, "appletHtml", htmlContent || "");
+            chatMessageModel.setProperty(assistantIndex, "approvalStatus", "pending");
+            chatMessageModel.setProperty(assistantIndex, "approvalResult", "");
+            var appletDbContent = JSON.stringify({
+                "name": cmdTag.name,
+                "description": cmdTag.description,
+                "html": htmlContent || "",
+                "status": "pending",
+                "result": "",
+                "thinking": preservedThinkingApplet || ""
+            });
+            var appletMsgId = Db.saveMessage(db, currentSessionId, "applet_approval", appletDbContent);
+            chatMessageModel.setProperty(assistantIndex, "messageId", appletMsgId);
+            loadSessionList();
+            chatPage.positionViewAtEnd();
         } else if (cmdTag.type === "remember") {
             var memContent = (cmdTag.content || "").trim();
             if (!memContent)
@@ -665,7 +737,7 @@ Item {
             if (!_isSessionActive(capturedSessionId)) {
                 var bgCmdTag = TextHelpers.parseCommandTag(finalText);
                 if (bgCmdTag) {
-                    var bgRole = bgCmdTag.type === "opencode" ? "opencode_approval" : bgCmdTag.type === "setting" ? "setting_approval" : bgCmdTag.type === "system" ? "system_command" : "assistant";
+                    var bgRole = bgCmdTag.type === "opencode" ? "opencode_approval" : bgCmdTag.type === "setting" ? "setting_approval" : bgCmdTag.type === "system" ? "system_command" : bgCmdTag.type === "js_run" ? "js_execution" : bgCmdTag.type === "create_applet" ? "applet_approval" : "assistant";
                     var bgContent = finalText;
                     if (bgCmdTag.type === "opencode") {
                         bgContent = JSON.stringify({
@@ -677,6 +749,23 @@ Item {
                         });
                     } else if (bgCmdTag.type === "setting") {
                         bgContent = bgCmdTag.command + "\n\n" + bgCmdTag.description;
+                    } else if (bgCmdTag.type === "js_run") {
+                        bgContent = JSON.stringify({
+                            "code": bgCmdTag.code,
+                            "status": "pending",
+                            "output": "",
+                            "thinking": ""
+                        });
+                    } else if (bgCmdTag.type === "create_applet") {
+                        var bgHtml = AppletMgr.extractHtmlFromResponse(finalText);
+                        bgContent = JSON.stringify({
+                            "name": bgCmdTag.name,
+                            "description": bgCmdTag.description,
+                            "html": bgHtml || "",
+                            "status": "pending",
+                            "result": "",
+                            "thinking": ""
+                        });
                     }
                     Db.saveMessage(db, capturedSessionId, bgRole, bgContent);
                 } else {
@@ -1002,6 +1091,191 @@ Item {
         loadSessionList();
     }
 
+    // ── JS Execution handlers ───────────────────────────────
+
+    function _executeJsCode(code, assistantIndex, preservedThinking) {
+        var runtime = Plasmoid.configuration.jsRuntime || "deno";
+        JsRunner.isAvailable(runtime, commandRunner, function(available, runtimeName) {
+            if (!available) {
+                if (assistantIndex < chatMessageModel.count) {
+                    chatMessageModel.setProperty(assistantIndex, "jsStatus", "failed");
+                    chatMessageModel.setProperty(assistantIndex, "jsOutput", runtimeName + " is not installed. Please install it or switch runtime in Settings > Code Execution.");
+                    chatMessageModel.setProperty(assistantIndex, "content", "⚡ JavaScript Failed — " + runtimeName + " not found");
+                }
+                var mid = assistantIndex < chatMessageModel.count ? chatMessageModel.get(assistantIndex).messageId : null;
+                if (mid && mid !== "") {
+                    Db.updateMessageContent(db, mid, JSON.stringify({
+                        "code": code,
+                        "status": "failed",
+                        "output": runtimeName + " is not installed.",
+                        "thinking": preservedThinking || ""
+                    }));
+                }
+                loadSessionList();
+                var updatedMessages = buildMessageArray();
+                updatedMessages.push({
+                    "role": "system",
+                    "content": "JavaScript execution failed: " + runtimeName + " is not installed on the system."
+                });
+                resumeStreaming(updatedMessages);
+                return;
+            }
+            var built = JsRunner.buildCommand(code, runtime);
+            var jsCallback = function(stdout, stderr, exitCode) {
+                var output = stdout || "";
+                if (stderr && stderr.trim() !== "") {
+                    if (output) output += "\n";
+                    output += "Stderr:\n" + stderr.trim();
+                }
+                if (exitCode !== 0) {
+                    if (output) output += "\n";
+                    output += "(Exit code: " + exitCode + ")";
+                }
+                if (output.trim() === "") output = "(No output)";
+                var statusStr = exitCode === 0 ? "success" : "failed";
+                if (assistantIndex < chatMessageModel.count) {
+                    chatMessageModel.setProperty(assistantIndex, "jsStatus", statusStr);
+                    chatMessageModel.setProperty(assistantIndex, "jsOutput", output);
+                    chatMessageModel.setProperty(assistantIndex, "content", statusStr === "success" ? "⚡ JavaScript Executed" : "⚡ JavaScript Failed");
+                }
+                var mid = assistantIndex < chatMessageModel.count ? chatMessageModel.get(assistantIndex).messageId : null;
+                if (mid && mid !== "") {
+                    Db.updateMessageContent(db, mid, JSON.stringify({
+                        "code": code,
+                        "status": statusStr,
+                        "output": output,
+                        "thinking": preservedThinking || ""
+                    }));
+                }
+                loadSessionList();
+                var updatedMessages = buildMessageArray();
+                updatedMessages.push({
+                    "role": "system",
+                    "content": "JavaScript execution " + (exitCode === 0 ? "succeeded" : "failed") + ". Output:\n" + output
+                });
+                resumeStreaming(updatedMessages);
+            };
+            executeCommandLine(built.fullCommand, jsCallback);
+        });
+    }
+
+    function approveJs(code, assistantIndex) {
+        chatMessageModel.setProperty(assistantIndex, "jsStatus", "running");
+        chatMessageModel.setProperty(assistantIndex, "jsOutput", "");
+        chatMessageModel.setProperty(assistantIndex, "content", "⚡ Running JavaScript...");
+        var preservedThinking = chatMessageModel.get(assistantIndex).thinkingText || "";
+        var mid = assistantIndex < chatMessageModel.count ? chatMessageModel.get(assistantIndex).messageId : null;
+        if (mid && mid !== "") {
+            Db.updateMessageContent(db, mid, JSON.stringify({
+                "code": code,
+                "status": "running",
+                "output": "",
+                "thinking": preservedThinking || ""
+            }));
+        }
+        loadSessionList();
+        _executeJsCode(code, assistantIndex, preservedThinking);
+    }
+
+    function declineJs(code, assistantIndex) {
+        if (assistantIndex < chatMessageModel.count)
+            chatMessageModel.setProperty(assistantIndex, "jsStatus", "declined");
+        var mid = assistantIndex < chatMessageModel.count ? chatMessageModel.get(assistantIndex).messageId : null;
+        if (mid && mid !== "") {
+            Db.updateMessageContent(db, mid, JSON.stringify({
+                "code": code,
+                "status": "declined",
+                "output": "",
+                "thinking": ""
+            }));
+        }
+        loadSessionList();
+        var updatedMessages = buildMessageArray();
+        updatedMessages.push({
+            "role": "system",
+            "content": "JavaScript execution declined by user."
+        });
+        resumeStreaming(updatedMessages);
+    }
+
+    // ── Applet handlers ──────────────────────────────────────
+
+    function approveApplet(name, description, html, assistantIndex) {
+        chatMessageModel.setProperty(assistantIndex, "approvalStatus", "running");
+        chatMessageModel.setProperty(assistantIndex, "content", JSON.stringify({
+            "name": name,
+            "description": description,
+            "html": html
+        }));
+        var preservedThinking = chatMessageModel.get(assistantIndex).thinkingText || "";
+        var appletId = Db.createApplet(db, name, description, html);
+        if (appletId && appletId !== "") {
+            AppletMgr.saveAppletFile(commandRunner, appletId, html, function(ok) {
+                if (assistantIndex < chatMessageModel.count) {
+                    chatMessageModel.setProperty(assistantIndex, "approvalStatus", "done");
+                    chatMessageModel.setProperty(assistantIndex, "approvalResult", "Applet saved: " + name);
+                }
+                var mid = assistantIndex < chatMessageModel.count ? chatMessageModel.get(assistantIndex).messageId : null;
+                if (mid && mid !== "") {
+                    Db.updateMessageContent(db, mid, JSON.stringify({
+                        "name": name,
+                        "description": description,
+                        "html": html,
+                        "status": "done",
+                        "result": "Applet saved: " + name,
+                        "thinking": preservedThinking || ""
+                    }));
+                }
+                loadAppletList();
+                loadSessionList();
+                var notifyCmd = "notify-send -i view-list-icons 'KDE Assistant' " + TextHelpers.escapeShellArg("Applet created: " + name);
+                commandRunner.execute(notifyCmd);
+                var updatedMessages = buildMessageArray();
+                updatedMessages.push({
+                    "role": "system",
+                    "content": "Applet \"" + name + "\" created successfully. The user can open it from the Applets page."
+                });
+                resumeStreaming(updatedMessages);
+            });
+        } else {
+            if (assistantIndex < chatMessageModel.count) {
+                chatMessageModel.setProperty(assistantIndex, "approvalStatus", "failed");
+                chatMessageModel.setProperty(assistantIndex, "approvalResult", "Failed to save applet");
+            }
+            loadSessionList();
+            var updatedMessagesFail = buildMessageArray();
+            updatedMessagesFail.push({
+                "role": "system",
+                "content": "Failed to create applet: database write error."
+            });
+            resumeStreaming(updatedMessagesFail);
+        }
+    }
+
+    function declineApplet(name, assistantIndex) {
+        if (assistantIndex < chatMessageModel.count)
+            chatMessageModel.setProperty(assistantIndex, "approvalStatus", "declined");
+        var mid = assistantIndex < chatMessageModel.count ? chatMessageModel.get(assistantIndex).messageId : null;
+        if (mid && mid !== "") {
+            var cur = chatMessageModel.get(assistantIndex);
+            Db.updateMessageContent(db, mid, JSON.stringify({
+                "name": name,
+                "description": cur.appletDescription || "",
+                "html": cur.appletHtml || "",
+                "status": "declined",
+                "result": "",
+                "thinking": ""
+            }));
+        }
+        loadSessionList();
+        var updatedMessages = buildMessageArray();
+        updatedMessages.push({
+            "role": "system",
+            "content": "Applet creation declined by user for: \"" + name + "\"."
+        });
+        resumeStreaming(updatedMessages);
+    }
+
     function loadSessionList() {
         chatSessionModel.clear();
         var sessions = Db.loadSessions(db);
@@ -1022,6 +1296,22 @@ Item {
         if (memoriesPage)
             memoriesPage.reload();
 
+    }
+
+    function loadAppletList() {
+        chatAppletModel.clear();
+        var applets = Db.listApplets(db);
+        for (var i = 0; i < applets.length; i++) {
+            chatAppletModel.append(applets[i]);
+        }
+        if (appletsPage)
+            appletsPage.reload();
+    }
+
+    function deleteApplet(appletId) {
+        AppletMgr.deleteAppletFile(commandRunner, appletId, function() {});
+        Db.deleteApplet(db, appletId);
+        loadAppletList();
     }
 
     function reloadTaskList() {
@@ -1114,6 +1404,10 @@ Item {
                     roleLabel = "### System Command";
                 else if (role === "opencode_approval")
                     roleLabel = "### OpenCode Coding Task";
+                else if (role === "js_execution")
+                    roleLabel = "### JavaScript Execution";
+                else if (role === "applet_approval")
+                    roleLabel = "### Applet Creation";
                 else if (role === "memory")
                     roleLabel = "### Memory Saved";
                 else if (role === "task")
@@ -1179,6 +1473,32 @@ Item {
                         markdown += "*Running...*\n\n";
                     else if (ocStatus === "pending")
                         markdown += "*Pending approval.*\n\n";
+                } else if (role === "js_execution") {
+                    var jsCodeCopy = m.jsCode || "";
+                    var jsStatusCopy = m.jsStatus || "";
+                    var jsOutputCopy = m.jsOutput || "";
+                    markdown += "Code:\n```javascript\n" + jsCodeCopy + "\n```\n\n";
+                    if (jsStatusCopy === "success" || jsStatusCopy === "failed")
+                        markdown += "**Result (" + jsStatusCopy + "):**\n```\n" + jsOutputCopy + "\n```\n\n";
+                    else if (jsStatusCopy === "declined")
+                        markdown += "*Declined by user.*\n\n";
+                    else if (jsStatusCopy === "running")
+                        markdown += "*Running...*\n\n";
+                    else if (jsStatusCopy === "pending")
+                        markdown += "*Pending approval.*\n\n";
+                } else if (role === "applet_approval") {
+                    var appletNameCopy = m.appletName || "";
+                    var appletDescCopy = m.appletDescription || "";
+                    var appletStatusCopy = m.approvalStatus || "";
+                    markdown += "**" + appletNameCopy + "**";
+                    if (appletDescCopy) markdown += " — " + appletDescCopy;
+                    markdown += "\n\n";
+                    if (appletStatusCopy === "done")
+                        markdown += "*Applet saved.*\n\n";
+                    else if (appletStatusCopy === "declined")
+                        markdown += "*Declined by user.*\n\n";
+                    else if (appletStatusCopy === "pending")
+                        markdown += "*Pending approval.*\n\n";
                 } else {
                     markdown += content + "\n\n";
                     // Append attachment summaries
@@ -1218,9 +1538,8 @@ Item {
             return;
         var markdown = "# " + currentSessionTitle + "\n\n" + buildConversationMarkdown() + "\n";
         var destPath = fileUrl.toString().replace("file://", "");
-        // Use base64 to safely transport content through shell
-        var b64 = Qt.btoa(unescape(encodeURIComponent(markdown)));
-        var writeCmd = "echo " + TextHelpers.escapeShellArg(b64) + " | base64 -d > " + TextHelpers.escapeShellArg(destPath);
+        // Use heredoc to safely write content through shell
+        var writeCmd = "cat > " + TextHelpers.escapeShellArg(destPath) + " << 'KDE_ASSISTANT_EXPORT_EOF'\n" + markdown + "\nKDE_ASSISTANT_EXPORT_EOF";
         commandRunner.execute(writeCmd, function(stdout, stderr, exitCode) {
             if (exitCode === 0) {
                 var notifyOk = "notify-send -i document-save 'KDE Assistant' 'Conversation exported successfully'";
@@ -1245,6 +1564,7 @@ Item {
         loadSessionList();
         historyViewActive = false;
         tasksViewActive = false;
+        appletsViewActive = false;
     }
 
     function loadSession(sessionId, sessionTitle) {
@@ -1384,6 +1704,48 @@ Item {
                     content = content;
                 }
             }
+            var isJsExecMsg = (role === "js_execution");
+            var jsCodeDb = "";
+            var jsStatusDb = "pending";
+            var jsOutputDb = "";
+            if (isJsExecMsg) {
+                try {
+                    var jsParsed = JSON.parse(content);
+                    jsCodeDb = jsParsed.code || "";
+                    jsStatusDb = jsParsed.status || "pending";
+                    jsOutputDb = jsParsed.output || "";
+                    preservedThinkingFromDb = jsParsed.thinking || "";
+                    content = "⚡ JavaScript Execution Request";
+                } catch (e) {
+                    jsCodeDb = content;
+                    content = "⚡ JavaScript Execution Request";
+                }
+            }
+            var isAppletApprovalMsg = (role === "applet_approval");
+            var appletNameDb = "";
+            var appletDescDb = "";
+            var appletHtmlDb = "";
+            var appletApprovalStatus = "pending";
+            var appletApprovalResult = "";
+            if (isAppletApprovalMsg) {
+                try {
+                    var appletParsed = JSON.parse(content);
+                    appletNameDb = appletParsed.name || "";
+                    appletDescDb = appletParsed.description || "";
+                    appletHtmlDb = appletParsed.html || "";
+                    appletApprovalStatus = appletParsed.status || "pending";
+                    appletApprovalResult = appletParsed.result || "";
+                    preservedThinkingFromDb = appletParsed.thinking || "";
+                    content = JSON.stringify({
+                        "name": appletNameDb,
+                        "description": appletDescDb,
+                        "html": appletHtmlDb
+                    });
+                } catch (e) {
+                    appletNameDb = content;
+                    content = content;
+                }
+            }
             var msg = TextHelpers.createDefaultMessage(role, content);
             msg.messageId = msgs[i].id;
             msg.isError = false;
@@ -1404,8 +1766,22 @@ Item {
             msg.opencodeInstruction = opencodeInstruction;
             msg.opencodeFiles = opencodeFiles;
             msg.opencodeModel = opencodeModel;
-            msg.approvalStatus = isSettingApprovalMsg ? settingApprovalStatus : opencodeStatus;
-            msg.approvalResult = isSettingApprovalMsg ? settingApprovalResult : opencodeOutput;
+            msg.jsCode = jsCodeDb;
+            msg.jsStatus = jsStatusDb;
+            msg.jsOutput = jsOutputDb;
+            msg.appletName = appletNameDb;
+            msg.appletDescription = appletDescDb;
+            msg.appletHtml = appletHtmlDb;
+            if (isJsExecMsg) {
+                msg.approvalStatus = jsStatusDb;
+                msg.approvalResult = jsOutputDb;
+            } else if (isAppletApprovalMsg) {
+                msg.approvalStatus = appletApprovalStatus;
+                msg.approvalResult = appletApprovalResult;
+            } else {
+                msg.approvalStatus = isSettingApprovalMsg ? settingApprovalStatus : opencodeStatus;
+                msg.approvalResult = isSettingApprovalMsg ? settingApprovalResult : opencodeOutput;
+            }
             msg.thinkingText = preservedThinkingFromDb;
             chatMessageModel.append(msg);
         }
@@ -1415,6 +1791,7 @@ Item {
         });
         historyViewActive = false;
         tasksViewActive = false;
+        appletsViewActive = false;
         Qt.callLater(updateContextUsage);
     }
 
@@ -1478,7 +1855,7 @@ Item {
             if (!_isSessionActive(capturedSessionId)) {
                 var bgCmdTag = TextHelpers.parseCommandTag(finalText);
                 if (bgCmdTag) {
-                    var bgRole = bgCmdTag.type === "opencode" ? "opencode_approval" : bgCmdTag.type === "setting" ? "setting_approval" : bgCmdTag.type === "system" ? "system_command" : "assistant";
+                    var bgRole = bgCmdTag.type === "opencode" ? "opencode_approval" : bgCmdTag.type === "setting" ? "setting_approval" : bgCmdTag.type === "system" ? "system_command" : bgCmdTag.type === "js_run" ? "js_execution" : bgCmdTag.type === "create_applet" ? "applet_approval" : "assistant";
                     var bgContent = finalText;
                     if (bgCmdTag.type === "opencode") {
                         bgContent = JSON.stringify({
@@ -1490,6 +1867,23 @@ Item {
                         });
                     } else if (bgCmdTag.type === "setting") {
                         bgContent = bgCmdTag.command + "\n\n" + bgCmdTag.description;
+                    } else if (bgCmdTag.type === "js_run") {
+                        bgContent = JSON.stringify({
+                            "code": bgCmdTag.code,
+                            "status": "pending",
+                            "output": "",
+                            "thinking": ""
+                        });
+                    } else if (bgCmdTag.type === "create_applet") {
+                        var bgHtml2 = AppletMgr.extractHtmlFromResponse(finalText);
+                        bgContent = JSON.stringify({
+                            "name": bgCmdTag.name,
+                            "description": bgCmdTag.description,
+                            "html": bgHtml2 || "",
+                            "status": "pending",
+                            "result": "",
+                            "thinking": ""
+                        });
                     }
                     Db.saveMessage(db, capturedSessionId, bgRole, bgContent);
                 } else {
@@ -1606,6 +2000,7 @@ Item {
         commandRunner.execute("pkill -f 'opencode run' 2>/dev/null || true");
         loadSessionList();
         loadMemoryList();
+        loadAppletList();
         // Load the most recent session, or create a new one if none exist
         if (chatSessionModel.count > 0) {
             var latest = chatSessionModel.get(0);
@@ -1683,6 +2078,11 @@ Item {
         id: chatMemoryModel
     }
 
+    // ── Applets list model (for Applets panel) ────────────────
+    ListModel {
+        id: chatAppletModel
+    }
+
     Connections {
         function onExpandedChanged() {
             if (root.expanded) {
@@ -1694,6 +2094,8 @@ Item {
                     memoriesPage.forceActiveFocus();
                 else if (mainStack.currentIndex === 3)
                     tasksPage.forceActiveFocus();
+                else if (mainStack.currentIndex === 4)
+                    appletsPage.forceActiveFocus();
             }
         }
 
@@ -1704,7 +2106,7 @@ Item {
         id: mainStack
 
         anchors.fill: parent
-        currentIndex: tasksViewActive ? 3 : memoriesViewActive ? 2 : historyViewActive ? 1 : 0
+        currentIndex: appletsViewActive ? 4 : tasksViewActive ? 3 : memoriesViewActive ? 2 : historyViewActive ? 1 : 0
         onCurrentIndexChanged: {
             fullRepRoot.hideToolTip();
             if (currentIndex === 0) {
@@ -1716,6 +2118,8 @@ Item {
                 memoriesPage.forceActiveFocus();
             else if (currentIndex === 3)
                 tasksPage.forceActiveFocus();
+            else if (currentIndex === 4)
+                appletsPage.forceActiveFocus();
         }
 
         // PAGE 0: Chat Interface
@@ -1763,11 +2167,19 @@ Item {
                 tasksViewActive = true;
                 historyViewActive = false;
                 memoriesViewActive = false;
+                appletsViewActive = false;
             }
             onToggleMemories: {
                 memoriesViewActive = true;
                 historyViewActive = false;
                 tasksViewActive = false;
+                appletsViewActive = false;
+            }
+            onToggleApplets: {
+                appletsViewActive = true;
+                historyViewActive = false;
+                tasksViewActive = false;
+                memoriesViewActive = false;
             }
             onStopStreaming: fullRepRoot.stopStreamingAndSave()
             onOpenFilePicker: filePickerDialog.open()
@@ -1792,6 +2204,18 @@ Item {
             }
             onStopOpenCodeRequested: function(index) {
                 fullRepRoot.stopOpenCode(index);
+            }
+            onApproveJsRequested: function(code, index) {
+                fullRepRoot.approveJs(code, index);
+            }
+            onDeclineJsRequested: function(code, index) {
+                fullRepRoot.declineJs(code, index);
+            }
+            onApproveAppletRequested: function(name, desc, html, index) {
+                fullRepRoot.approveApplet(name, desc, html, index);
+            }
+            onDeclineAppletRequested: function(name, index) {
+                fullRepRoot.declineApplet(name, index);
             }
             onDeleteMemoryRequested: function(memoryId, index) {
                 fullRepRoot.deleteMemory(memoryId, index);
@@ -1839,6 +2263,30 @@ Item {
             db: fullRepRoot.db
             currentSessionId: fullRepRoot.currentSessionId
             onBackClicked: tasksViewActive = false
+        }
+
+        // PAGE 4: Applets View
+        AppletsPage {
+            id: appletsPage
+
+            db: fullRepRoot.db
+            onBackClicked: appletsViewActive = false
+            onOpenApplet: function(appletId) {
+                AppletMgr.openApplet(appletId);
+            }
+            onDeleteApplet: function(appletId) {
+                fullRepRoot.deleteApplet(appletId);
+            }
+            onCreateApplet: function(name, description, html) {
+                var appletId = Db.createApplet(db, name, description, html);
+                if (appletId && appletId !== "") {
+                    AppletMgr.saveAppletFile(commandRunner, appletId, html, function(ok) {
+                        loadAppletList();
+                        var notifyCmd = "notify-send -i view-list-icons 'KDE Assistant' " + TextHelpers.escapeShellArg("Applet created: " + name);
+                        commandRunner.execute(notifyCmd);
+                    });
+                }
+            }
         }
 
     }

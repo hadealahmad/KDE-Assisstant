@@ -96,6 +96,25 @@ function parseCommandTag(text) {
         return { type: "task", title: taskMatch[1].trim() };
     }
 
+    // [JS_RUN: console.log(42 + 58)]
+    var jsRunMatch = clean.match(/\[js_run:\s*([\s\S]+?)\s*\]/i);
+    if (jsRunMatch) {
+        return { type: "js_run", code: jsRunMatch[1].trim() };
+    }
+
+    // [CREATE_APPLET: name="Payment Tracker" description="Track payments"]
+    var createAppletMatch = clean.match(/\[create_applet:\s*([^\]]+)\]/i);
+    if (createAppletMatch) {
+        var raw = createAppletMatch[1].trim();
+        var nameMatch = raw.match(/name="([^"]+)"/i);
+        var descMatch = raw.match(/description="([^"]+)"/i);
+        return {
+            type: "create_applet",
+            name: nameMatch ? nameMatch[1] : "Untitled Applet",
+            description: descMatch ? descMatch[1] : ""
+        };
+    }
+
     return null;
 }
 
@@ -189,6 +208,12 @@ function createDefaultMessage(role, content) {
         opencodeInstruction: "",
         opencodeFiles: "",
         opencodeModel: "",
+        jsCode: "",
+        jsOutput: "",
+        jsStatus: "",
+        appletName: "",
+        appletDescription: "",
+        appletHtml: "",
         thinkingText: "",
         toolOriginalText: ""
     };

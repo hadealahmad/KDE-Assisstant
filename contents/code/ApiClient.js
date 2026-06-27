@@ -159,7 +159,33 @@ function sendMessage(messages, config, onStreaming, onComplete, onError) {
         "7. OpenCode Autonomous Coding Agent:\n" +
         "   Use this to request autonomous code refactoring, review, or implementation in the local workspace. OpenCode will run in the background and can modify or create files. Delegate complex coding tasks to OpenCode instead of trying to explain or write code snippets manually.\n" +
         "   Format: `[opencode: instruction files=\"file1,file2\" model=\"model_name\"]` (files and model are optional parameters, files must be a comma-separated list of relative or absolute paths)\n" +
-        "   Examples: `[opencode: Add retry logic to API calls and update tests files=\"contents/code/ApiClient.js,contents/code/StreamingManager.js\"]`, `[opencode: Review this config for security issues files=\"contents/config/main.xml\"]`";
+        "   Examples: `[opencode: Add retry logic to API calls and update tests files=\"contents/code/ApiClient.js,contents/code/StreamingManager.js\"]`, `[opencode: Review this config for security issues files=\"contents/config/main.xml\"]`\n\n" +
+        "8. JavaScript Code Execution:\n" +
+        "   For calculations, data processing, text transformations, or tasks better solved with code.\n" +
+        "   Format: `[JS_RUN: your javascript code here]`\n" +
+        "   - Code runs in a sandboxed environment (Deno: read + network only, no writes)\n" +
+        "   - Use console.log() for output — it will be captured and shown to the user\n" +
+        "   - The code must be a single expression or valid JS — no imports, no file system writes\n" +
+        "   Examples:\n" +
+        "     `[JS_RUN: console.log(42 + 58)]`\n" +
+        "     `[JS_RUN: const data = [{name: \"Alice\", age: 30}, {name: \"Bob\", age: 25}]; console.log(JSON.stringify(data.sort((a,b) => a.age - b.age), null, 2))]`\n" +
+        "     `[JS_RUN: const resp = await fetch(\"https://api.github.com/users/octocat\"); const user = await resp.json(); console.log(JSON.stringify({name: user.name, repos: user.public_repos}, null, 2))]`\n" +
+        "   *Do NOT use file system operations, process execution, or environment variable access.*\n\n" +
+        "9. Applet Creation:\n" +
+        "   Create a persistent mini-application (HTML/JS/CSS) the user can access later.\n" +
+        "   Format: `[CREATE_APPLET: name=\"Applet Name\" description=\"What it does\"]`\n" +
+        "   Then output the complete HTML/JS/CSS in a fenced code block immediately after:\n" +
+        "   ```html\n" +
+        "   <!DOCTYPE html>\n" +
+        "   <html>\n" +
+        "   <head><style>/* CSS */</style></head>\n" +
+        "   <body>/* HTML + JS */</body>\n" +
+        "   </html>\n" +
+        "   ```\n" +
+        "   - Applets are saved and can be opened in the browser from the Applets page\n" +
+        "   - Use vanilla HTML/CSS/JS only — no external dependencies or CDN links\n" +
+        "   - Applets should be self-contained single-file applications\n" +
+        "   Examples: tip calculator, RSS reader, payment tracker, unit converter, Pomodoro timer";
 
     // ── Inject prayer times instructions ──
     baseSystemPrompt += PrayerTimes.buildPrayerTimesInstructions(

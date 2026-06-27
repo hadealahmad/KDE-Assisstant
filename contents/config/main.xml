@@ -92,5 +92,11 @@
         <entry name="webserverToken" type="String">
             <default></default>
         </entry>
+        <entry name="jsRuntime" type="String">
+            <default>deno</default>
+        </entry>
+        <entry name="jsAutoApprove" type="Bool">
+            <default>false</default>
+        </entry>
     </group>
 </kcfg>

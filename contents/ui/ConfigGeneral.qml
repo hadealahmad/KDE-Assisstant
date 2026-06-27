@@ -44,6 +44,9 @@ QQC2.ScrollView {
     property alias cfg_webserverEnabled: webserverEnabled.checked
     property alias cfg_webserverPort: webserverPort.value
     property string cfg_webserverToken: plasmoid.configuration.webserverToken || ""
+    // Code Execution configuration
+    property string cfg_jsRuntime: plasmoid.configuration.jsRuntime || "deno"
+    property alias cfg_jsAutoApprove: jsAutoApprove.checked
     property string _localIpAddress: "127.0.0.1"
     property string _downloadStatus: "Not Downloaded"
     property var _piperVoicePresets: [{
@@ -558,7 +561,60 @@ QQC2.ScrollView {
         }
 
         // ─────────────────────────────────────────────────────────
-        // GROUP 3: Search — collapsed (Web Search + Local File Search)
+        // GROUP 3: Code Execution — collapsed
+        // ─────────────────────────────────────────────────────────
+        Components.CollapsibleBlock {
+            title: i18n("Code Execution")
+            expanded: false
+            Layout.fillWidth: true
+
+            Kirigami.FormLayout {
+                width: parent.width
+
+                QQC2.Label {
+                    text: i18n("Allow the assistant to run JavaScript code for calculations and data processing.\nCode runs in a sandboxed Deno environment (read + network only, no writes).")
+                    color: Kirigami.Theme.disabledTextColor
+                    font.pointSize: Kirigami.Theme.smallFont.pointSize
+                    wrapMode: Text.Wrap
+                    Layout.fillWidth: true
+                }
+
+                QQC2.ComboBox {
+                    id: jsRuntimeCombo
+
+                    Kirigami.FormData.label: i18n("JS Runtime:")
+                    model: ["Deno (Recommended)", "Node.js", "Bun"]
+                    currentIndex: {
+                        var r = scrollRoot.cfg_jsRuntime;
+                        var idx = ["deno", "node", "bun"].indexOf(r);
+                        return idx >= 0 ? idx : 0;
+                    }
+                    onActivated: {
+                        scrollRoot.cfg_jsRuntime = ["deno", "node", "bun"][currentIndex];
+                        plasmoid.configuration.jsRuntime = scrollRoot.cfg_jsRuntime;
+                    }
+                }
+
+                QQC2.Label {
+                    visible: scrollRoot.cfg_jsRuntime !== "deno"
+                    height: visible ? implicitHeight : 0
+                    text: i18n("Deno is recommended because it has built-in permission sandboxing. Node.js and Bun do not sandbox code by default.")
+                    color: Kirigami.Theme.negativeTextColor
+                    font.pointSize: Kirigami.Theme.smallFont.pointSize
+                    wrapMode: Text.Wrap
+                    Layout.fillWidth: true
+                }
+
+                QQC2.CheckBox {
+                    id: jsAutoApprove
+
+                    text: i18n("Auto-approve JavaScript execution (skip confirmation dialog)")
+                }
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────
+        // GROUP 4: Search — collapsed (Web Search + Local File Search)
         // ─────────────────────────────────────────────────────────
         Components.CollapsibleBlock {
             title: i18n("Search")
@@ -651,7 +707,7 @@ QQC2.ScrollView {
         }
 
         // ─────────────────────────────────────────────────────────
-        // GROUP 4: Voice — collapsed (STT + TTS)
+        // GROUP 5: Voice — collapsed (STT + TTS)
         // ─────────────────────────────────────────────────────────
         Components.CollapsibleBlock {
             title: i18n("Voice (Speech-to-Text & Text-to-Speech)")
@@ -937,7 +993,7 @@ QQC2.ScrollView {
         }
 
         // ─────────────────────────────────────────────────────────
-        // GROUP 5: Prayer Times — collapsed
+        // GROUP 6: Prayer Times — collapsed
         // ─────────────────────────────────────────────────────────
         Components.CollapsibleBlock {
             title: i18n("Prayer Times")
@@ -1004,7 +1060,7 @@ QQC2.ScrollView {
         }
 
         // ─────────────────────────────────────────────────────────
-        // GROUP 6: Web Access — collapsed
+        // GROUP 7: Web Access — collapsed
         // ─────────────────────────────────────────────────────────
         Components.CollapsibleBlock {
             title: i18n("Mobile Web Access")

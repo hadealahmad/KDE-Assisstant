@@ -54,6 +54,7 @@ Item {
     signal toggleHistory()
     signal toggleTasks()
     signal toggleMemories()
+    signal toggleApplets()
     signal stopStreaming()
     signal openFilePicker()
     signal removeAttachment(int index)
@@ -64,6 +65,10 @@ Item {
     signal approveOpenCodeRequested(string instruction, string files, string model, int index)
     signal declineOpenCodeRequested(string instruction, int index)
     signal stopOpenCodeRequested(int index)
+    signal approveJsRequested(string code, int index)
+    signal declineJsRequested(string code, int index)
+    signal approveAppletRequested(string name, string description, string html, int index)
+    signal declineAppletRequested(string name, int index)
     signal deleteMemoryRequested(string memoryId, int index)
     signal openFileRequested(string filePath)
     signal openAttachmentRequested(var attachment)
@@ -200,6 +205,12 @@ Item {
                     opencodeInstruction: delegateRoot.modelData.opencodeInstruction ?? ""
                     opencodeFiles: delegateRoot.modelData.opencodeFiles ?? ""
                     opencodeModel: delegateRoot.modelData.opencodeModel ?? ""
+                    jsCode: delegateRoot.modelData.jsCode ?? ""
+                    jsOutput: delegateRoot.modelData.jsOutput ?? ""
+                    jsStatus: delegateRoot.modelData.jsStatus ?? ""
+                    appletName: delegateRoot.modelData.appletName ?? ""
+                    appletDescription: delegateRoot.modelData.appletDescription ?? ""
+                    appletHtml: delegateRoot.modelData.appletHtml ?? ""
                     preservedThinkingText: delegateRoot.modelData.thinkingText ?? ""
                     onApproveSettingRequested: function(command, description, index) {
                         chatPageRoot.approveSettingRequested(command, description, index);
@@ -215,6 +226,18 @@ Item {
                     }
                     onStopOpenCodeRequested: function(index) {
                         chatPageRoot.stopOpenCodeRequested(index);
+                    }
+                    onApproveJsRequested: function(code, index) {
+                        chatPageRoot.approveJsRequested(code, index);
+                    }
+                    onDeclineJsRequested: function(code, index) {
+                        chatPageRoot.declineJsRequested(code, index);
+                    }
+                    onApproveAppletRequested: function(name, desc, html, index) {
+                        chatPageRoot.approveAppletRequested(name, desc, html, index);
+                    }
+                    onDeclineAppletRequested: function(name, index) {
+                        chatPageRoot.declineAppletRequested(name, index);
                     }
                     onDeleteMemoryRequested: function(memoryId, index) {
                         chatPageRoot.deleteMemoryRequested(memoryId, index);
@@ -387,6 +410,12 @@ Item {
             // Surface the memory count inline instead of hiding it in a tooltip.
             text: chatPageRoot.memoryCount > 0 ? "Memories (" + chatPageRoot.memoryCount + ")" : "Memories"
             onClicked: chatPageRoot.toggleMemories()
+        }
+
+        PlasmaComponents.MenuItem {
+            icon.name: "view-list-icons"
+            text: "Applets"
+            onClicked: chatPageRoot.toggleApplets()
         }
 
         PlasmaComponents.MenuSeparator {

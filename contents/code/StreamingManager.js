@@ -161,6 +161,44 @@ function buildMessageArray(messageModel, AttachmentHelpers) {
                         content: "OpenCode execution declined by user for instruction: \"" + inst + "\"."
                     });
                 }
+            } else if (role === "js_execution") {
+                var jsCode = m.jsCode || "";
+                var jsStatus = m.jsStatus || "";
+                var jsOutput = m.jsOutput || "";
+                arr.push({
+                    role: "assistant",
+                    content: "[JS_RUN: " + jsCode + "]"
+                });
+                if (jsStatus === "success" || jsStatus === "failed") {
+                    arr.push({
+                        role: "system",
+                        content: "JavaScript execution " + jsStatus + ". Output:\n" + jsOutput
+                    });
+                } else if (jsStatus === "declined") {
+                    arr.push({
+                        role: "system",
+                        content: "JavaScript execution declined by user."
+                    });
+                }
+            } else if (role === "applet_approval") {
+                var appletNameSa = m.appletName || "";
+                var appletDescSa = m.appletDescription || "";
+                var appletStatusSa = m.approvalStatus || "";
+                arr.push({
+                    role: "assistant",
+                    content: "[CREATE_APPLET: name=\"" + appletNameSa + "\" description=\"" + appletDescSa + "\"]"
+                });
+                if (appletStatusSa === "done") {
+                    arr.push({
+                        role: "system",
+                        content: "Applet \"" + appletNameSa + "\" created successfully."
+                    });
+                } else if (appletStatusSa === "declined") {
+                    arr.push({
+                        role: "system",
+                        content: "Applet creation declined by user for: \"" + appletNameSa + "\"."
+                    });
+                }
             } else if (role === "memory") {
                 var memOrigText = m.toolOriginalText || "";
                 if (memOrigText) {

@@ -75,6 +75,17 @@ function initDatabase(db) {
             "  created_at INTEGER NOT NULL" +
             ")"
         );
+        // ── Applets ─────────────────────────────────────────────
+        tx.executeSql(
+            "CREATE TABLE IF NOT EXISTS applets (" +
+            "  id TEXT PRIMARY KEY," +
+            "  name TEXT NOT NULL," +
+            "  description TEXT DEFAULT ''," +
+            "  html_content TEXT NOT NULL," +
+            "  created_at INTEGER NOT NULL," +
+            "  updated_at INTEGER NOT NULL" +
+            ")"
+        );
     });
 }
 
@@ -538,5 +549,81 @@ function deleteSubtask(db, subtaskId) {
         });
     } catch (e) {
         console.error("deleteSubtask error:", e);
+    }
+}
+
+// ──────────────────────────────────────────────
+// Applets CRUD
+// ──────────────────────────────────────────────
+
+function createApplet(db, name, description, htmlContent) {
+    var now = Date.now();
+    var id = "applet_" + now.toString(36) + "_" + Math.random().toString(36).substr(2, 6);
+    try {
+        db.transaction(function (tx) {
+            tx.executeSql(
+                "INSERT INTO applets (id, name, description, html_content, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                [id, name.trim(), description || "", htmlContent, now, now]
+            );
+        });
+        return id;
+    } catch (e) {
+        console.error("createApplet error:", e);
+        return "";
+    }
+}
+
+function listApplets(db) {
+    var applets = [];
+    try {
+        db.readTransaction(function (tx) {
+            var result = tx.executeSql(
+                "SELECT id, name, description, created_at, updated_at FROM applets ORDER BY updated_at DESC"
+            );
+            for (var i = 0; i < result.rows.length; i++) {
+                applets.push(result.rows.item(i));
+            }
+        });
+    } catch (e) {
+        console.error("listApplets error:", e);
+    }
+    return applets;
+}
+
+function getApplet(db, appletId) {
+    try {
+        db.readTransaction(function (tx) {
+            var result = tx.executeSql("SELECT * FROM applets WHERE id = ? LIMIT 1", [appletId]);
+            if (result.rows.length > 0) {
+                return result.rows.item(0);
+            }
+        });
+    } catch (e) {
+        console.error("getApplet error:", e);
+    }
+    return null;
+}
+
+function updateApplet(db, appletId, name, description, htmlContent) {
+    var now = Date.now();
+    try {
+        db.transaction(function (tx) {
+            tx.executeSql(
+                "UPDATE applets SET name = ?, description = ?, html_content = ?, updated_at = ? WHERE id = ?",
+                [name.trim(), description || "", htmlContent, now, appletId]
+            );
+        });
+    } catch (e) {
+        console.error("updateApplet error:", e);
+    }
+}
+
+function deleteApplet(db, appletId) {
+    try {
+        db.transaction(function (tx) {
+            tx.executeSql("DELETE FROM applets WHERE id = ?", [appletId]);
+        });
+    } catch (e) {
+        console.error("deleteApplet error:", e);
     }
 }

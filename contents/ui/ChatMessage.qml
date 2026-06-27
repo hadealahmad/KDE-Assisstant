@@ -34,6 +34,14 @@ Kirigami.AbstractCard {
     property string opencodeFiles: ""
     property string opencodeModel: ""
     readonly property bool isOpenCodeApproval: role === "opencode_approval"
+    readonly property bool isJsExecution: role === "js_execution"
+    readonly property bool isAppletApproval: role === "applet_approval"
+    property string jsCode: ""
+    property string jsOutput: ""
+    property string jsStatus: ""
+    property string appletName: ""
+    property string appletDescription: ""
+    property string appletHtml: ""
     property string memoryContent: ""
     property string memoryId: ""
     property string taskTitle: ""
@@ -124,6 +132,10 @@ Kirigami.AbstractCard {
     signal approveOpenCodeRequested(string instruction, string files, string model, int index)
     signal declineOpenCodeRequested(string instruction, int index)
     signal stopOpenCodeRequested(int index)
+    signal approveJsRequested(string code, int index)
+    signal declineJsRequested(string code, int index)
+    signal approveAppletRequested(string name, string description, string html, int index)
+    signal declineAppletRequested(string name, int index)
     signal deleteMemoryRequested(string memoryId, int index)
     signal viewTasksRequested()
     signal openFileRequested(string filePath)
@@ -189,7 +201,7 @@ Kirigami.AbstractCard {
         icon.name: (fullRepRoot.isSpeaking && fullRepRoot.currentlySpokenText === root.cleanMessageText) ? "media-playback-stop" : "audio-volume-high"
         display: Controls.AbstractButton.IconOnly
         text: (fullRepRoot.isSpeaking && fullRepRoot.currentlySpokenText === root.cleanMessageText) ? "Stop Reading" : "Read Aloud"
-        visible: root.cleanMessageText !== "" && !root.isUser && !root.isError && !root.isApproval && !root.isCommand && !root.isMemory && !root.isTask
+        visible: root.cleanMessageText !== "" && !root.isUser && !root.isError && !root.isApproval && !root.isCommand && !root.isMemory && !root.isTask && !root.isJsExecution && !root.isAppletApproval
         opacity: (cardHoverHandler.hovered || (fullRepRoot.isSpeaking && fullRepRoot.currentlySpokenText === root.cleanMessageText)) ? 1 : 0.4
         flat: true
         onClicked: {
@@ -217,7 +229,7 @@ Kirigami.AbstractCard {
 
     // Subtle tint to distinguish user vs assistant bubbles
     background: Rectangle {
-        visible: root.isUser || root.isError || root.isMemory || root.isTask || root.isOpenCodeApproval
+        visible: root.isUser || root.isError || root.isMemory || root.isTask || root.isOpenCodeApproval || root.isJsExecution || root.isAppletApproval
         color: {
             if (root.isError)
                 return Qt.rgba(Kirigami.Theme.negativeTextColor.r, Kirigami.Theme.negativeTextColor.g, Kirigami.Theme.negativeTextColor.b, 0.08);
@@ -233,6 +245,12 @@ Kirigami.AbstractCard {
 
             if (root.isOpenCodeApproval)
                 return Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g, 0.8, 0.07);
+
+            if (root.isJsExecution)
+                return Qt.rgba(Kirigami.Theme.highlightColor.r, 0.6, Kirigami.Theme.highlightColor.b, 0.07);
+
+            if (root.isAppletApproval)
+                return Qt.rgba(0.6, Kirigami.Theme.highlightColor.g, Kirigami.Theme.highlightColor.b, 0.07);
 
             return "transparent";
         }
@@ -252,6 +270,12 @@ Kirigami.AbstractCard {
 
             if (root.isOpenCodeApproval)
                 return Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g, 0.8, 0.3);
+
+            if (root.isJsExecution)
+                return Qt.rgba(Kirigami.Theme.highlightColor.r, 0.6, Kirigami.Theme.highlightColor.b, 0.3);
+
+            if (root.isAppletApproval)
+                return Qt.rgba(0.6, Kirigami.Theme.highlightColor.g, Kirigami.Theme.highlightColor.b, 0.3);
 
             return "transparent";
         }
@@ -275,6 +299,12 @@ Kirigami.AbstractCard {
 
                 if (root.isOpenCodeApproval)
                     return "💻 OpenCode Coding Task";
+
+                if (root.isJsExecution)
+                    return "⚡ JavaScript Execution";
+
+                if (root.isAppletApproval)
+                    return "📱 Applet Creation";
 
                 if (root.isCommand)
                     return "⚙ System Command";
@@ -303,6 +333,12 @@ Kirigami.AbstractCard {
                     return Kirigami.Theme.highlightColor;
 
                 if (root.isOpenCodeApproval)
+                    return Kirigami.Theme.highlightColor;
+
+                if (root.isJsExecution)
+                    return Kirigami.Theme.highlightColor;
+
+                if (root.isAppletApproval)
                     return Kirigami.Theme.highlightColor;
 
                 if (root.isCommand)
@@ -368,6 +404,40 @@ Kirigami.AbstractCard {
             }
         }
 
+        // JS Execution Interface
+        Components.JsExecutionCard {
+            visible: root.isJsExecution
+            jsCode: root.jsCode
+            jsStatus: root.jsStatus
+            jsOutput: root.jsOutput
+            resultExpanded: root.resultExpanded
+            onResultExpandedChanged: root.resultExpanded = resultExpanded
+            onApproved: function(code) {
+                root.approveJsRequested(code, root.messageIndex);
+            }
+            onDeclined: function(code) {
+                root.declineJsRequested(code, root.messageIndex);
+            }
+        }
+
+        // Applet Approval Interface
+        Components.AppletApprovalCard {
+            visible: root.isAppletApproval
+            approvalStatus: root.approvalStatus
+            appletName: root.appletName
+            appletDescription: root.appletDescription
+            appletHtml: root.appletHtml
+            approvalResult: root.approvalResult
+            resultExpanded: root.resultExpanded
+            onResultExpandedChanged: root.resultExpanded = resultExpanded
+            onApproved: function(name, desc, html) {
+                root.approveAppletRequested(name, desc, html, root.messageIndex);
+            }
+            onDeclined: function(name) {
+                root.declineAppletRequested(name, root.messageIndex);
+            }
+        }
+
         // System Command Block
         Components.SystemCommandCard {
             visible: root.isCommand
@@ -383,7 +453,7 @@ Kirigami.AbstractCard {
 
             Layout.fillWidth: true
             Layout.leftMargin: Kirigami.Units.gridUnit * 2
-            visible: !root.isApproval && !root.isOpenCodeApproval && !root.isCommand && !root.isMemory && !root.isTask && root.cleanMessageText !== ""
+            visible: !root.isApproval && !root.isOpenCodeApproval && !root.isJsExecution && !root.isAppletApproval && !root.isCommand && !root.isMemory && !root.isTask && root.cleanMessageText !== ""
             readOnly: true
             wrapMode: TextEdit.WordWrap
             selectByMouse: true
