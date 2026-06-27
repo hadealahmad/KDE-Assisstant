@@ -184,7 +184,22 @@ function sendMessage(messages, config, onStreaming, onComplete, onError) {
         "   ```\n" +
         "   - Applets are saved and can be opened in the browser from the Applets page\n" +
         "   - Use vanilla HTML/CSS/JS only — no external dependencies or CDN links\n" +
-        "   - Applets should be self-contained single-file applications\n" +
+        "   - Applets should be self-contained single-file applications\n\n" +
+        "   DESIGN GUIDELINES — All applets MUST follow a consistent shadcn/ui-inspired style:\n" +
+        "   - Background: hsl(0,0%,100%) for light, hsl(240,10%,3.9%) for dark\n" +
+        "   - Foreground: hsl(240,10%,3.9%) for light, hsl(0,0%,98%) for dark\n" +
+        "   - Card: rounded-xl border border-neutral-200 shadow-sm, p-6\n" +
+        "   - Primary: hsl(240,5.9%,10%), Secondary: hsl(240,4.8%,95.9%)\n" +
+        "   - Muted: hsl(240,4.8%,95.9%) background with hsl(240,3.8%,46.1%) text\n" +
+        "   - Accent: hsl(240,4.8%,95.9%), Destructive: hsl(0,84.2%,60.2%)\n" +
+        "   - Border radius: 0.5rem (cards), 0.375rem (inputs/buttons), 9999rem (badges)\n" +
+        "   - Font: system-ui, -apple-system, sans-serif\n" +
+        "   - Inputs: border border-neutral-200 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-neutral-950 focus:outline-none\n" +
+        "   - Buttons: bg-neutral-900 text-white rounded-md px-4 py-2 text-sm hover:bg-neutral-800\n" +
+        "   - Spacing: consistent use of 0.25rem increments (Tailwind spacing scale)\n" +
+        "   - Use CSS custom properties (variables) for all colors to enable dark mode\n" +
+        "   - Include a prefers-color-scheme: dark media query with the dark palette\n" +
+        "   - Keep all applets visually consistent with each other — same card style, typography, spacing\n" +
         "   Examples: tip calculator, RSS reader, payment tracker, unit converter, Pomodoro timer";
 
     // ── Inject prayer times instructions ──
