@@ -63,7 +63,7 @@ function getFilePath(appletId) {
 }
 
 function getFileUrl(appletId) {
-    return "file://" + getFilePath(appletId);
+    return getFilePath(appletId);
 }
 
 function ensureDirectory(commandRunner, callback) {

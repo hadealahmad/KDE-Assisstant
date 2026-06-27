@@ -2266,7 +2266,13 @@ Item {
             db: fullRepRoot.db
             onBackClicked: appletsViewActive = false
             onOpenApplet: function(appletId) {
-                AppletMgr.openApplet(appletId);
+                // Resolve $HOME since file:// URLs don't expand shell variables
+                var filePath = AppletMgr.getFilePath(appletId);
+                executeCommandLine("echo " + TextHelpers.escapeShellArg(filePath), function(stdout) {
+                    var resolvedPath = stdout.trim();
+                    if (resolvedPath)
+                        Qt.openUrlExternally("file://" + resolvedPath);
+                });
             }
             onDeleteApplet: function(appletId) {
                 fullRepRoot.deleteApplet(appletId);
