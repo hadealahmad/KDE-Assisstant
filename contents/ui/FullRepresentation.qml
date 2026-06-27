@@ -1133,27 +1133,32 @@ Item {
                 }
                 if (output.trim() === "") output = "(No output)";
                 var statusStr = exitCode === 0 ? "success" : "failed";
-                if (assistantIndex < chatMessageModel.count) {
-                    chatMessageModel.setProperty(assistantIndex, "jsStatus", statusStr);
-                    chatMessageModel.setProperty(assistantIndex, "jsOutput", output);
-                    chatMessageModel.setProperty(assistantIndex, "content", statusStr === "success" ? "⚡ JavaScript Executed" : "⚡ JavaScript Failed");
-                }
-                var mid = assistantIndex < chatMessageModel.count ? chatMessageModel.get(assistantIndex).messageId : null;
-                if (mid && mid !== "") {
-                    Db.updateMessageContent(db, mid, JSON.stringify({
-                        "code": code,
-                        "status": statusStr,
-                        "output": output,
-                        "thinking": preservedThinking || ""
-                    }));
-                }
-                loadSessionList();
-                var updatedMessages = buildMessageArray();
-                updatedMessages.push({
-                    "role": "system",
-                    "content": "JavaScript execution " + (exitCode === 0 ? "succeeded" : "failed") + ". Output:\n" + output
+                // Defer model mutations — calling resumeStreaming inside DataSource.onNewData causes segfault
+                Qt.callLater(function() {
+                    if (assistantIndex < chatMessageModel.count) {
+                        chatMessageModel.setProperty(assistantIndex, "jsStatus", statusStr);
+                        chatMessageModel.setProperty(assistantIndex, "jsOutput", output);
+                        chatMessageModel.setProperty(assistantIndex, "content", statusStr === "success" ? "⚡ JavaScript Executed" : "⚡ JavaScript Failed");
+                    }
+                    var mid = assistantIndex < chatMessageModel.count ? chatMessageModel.get(assistantIndex).messageId : null;
+                    if (mid && mid !== "") {
+                        Db.updateMessageContent(db, mid, JSON.stringify({
+                            "code": code,
+                            "status": statusStr,
+                            "output": output,
+                            "thinking": preservedThinking || ""
+                        }));
+                    }
+                    loadSessionList();
+                    Qt.callLater(function() {
+                        var updatedMessages = buildMessageArray();
+                        updatedMessages.push({
+                            "role": "system",
+                            "content": "JavaScript execution " + (exitCode === 0 ? "succeeded" : "failed") + ". Output:\n" + output
+                        });
+                        resumeStreaming(updatedMessages);
+                    });
                 });
-                resumeStreaming(updatedMessages);
             };
             executeCommandLine(built.fullCommand, jsCallback);
         });
@@ -1201,55 +1206,43 @@ Item {
     // ── Applet handlers ──────────────────────────────────────
 
     function approveApplet(name, description, html, assistantIndex) {
+        if (assistantIndex >= chatMessageModel.count) return;
         chatMessageModel.setProperty(assistantIndex, "approvalStatus", "running");
-        chatMessageModel.setProperty(assistantIndex, "content", JSON.stringify({
-            "name": name,
-            "description": description,
-            "html": html
-        }));
-        var preservedThinking = chatMessageModel.get(assistantIndex).thinkingText || "";
-        var appletId = Db.createApplet(db, name, description, html);
-        if (appletId && appletId !== "") {
-            AppletMgr.saveAppletFile(commandRunner, appletId, html, function(ok) {
-                if (assistantIndex < chatMessageModel.count) {
-                    chatMessageModel.setProperty(assistantIndex, "approvalStatus", "done");
-                    chatMessageModel.setProperty(assistantIndex, "approvalResult", "Applet saved: " + name);
-                }
-                var mid = assistantIndex < chatMessageModel.count ? chatMessageModel.get(assistantIndex).messageId : null;
-                if (mid && mid !== "") {
-                    Db.updateMessageContent(db, mid, JSON.stringify({
-                        "name": name,
-                        "description": description,
-                        "html": html,
-                        "status": "done",
-                        "result": "Applet saved: " + name,
-                        "thinking": preservedThinking || ""
-                    }));
-                }
-                loadAppletList();
-                loadSessionList();
-                var notifyCmd = "notify-send -i view-list-icons 'KDE Assistant' " + TextHelpers.escapeShellArg("Applet created: " + name);
-                commandRunner.execute(notifyCmd);
-                var updatedMessages = buildMessageArray();
-                updatedMessages.push({
-                    "role": "system",
-                    "content": "Applet \"" + name + "\" created successfully. The user can open it from the Applets page."
-                });
-                resumeStreaming(updatedMessages);
-            });
-        } else {
-            if (assistantIndex < chatMessageModel.count) {
-                chatMessageModel.setProperty(assistantIndex, "approvalStatus", "failed");
-                chatMessageModel.setProperty(assistantIndex, "approvalResult", "Failed to save applet");
-            }
+        chatMessageModel.setProperty(assistantIndex, "approvalResult", "");
+
+        var appletId = Db.createApplet(db, name, description, html || "");
+        if (!appletId || appletId === "") {
+            chatMessageModel.setProperty(assistantIndex, "approvalStatus", "failed");
+            chatMessageModel.setProperty(assistantIndex, "approvalResult", "DB error");
             loadSessionList();
-            var updatedMessagesFail = buildMessageArray();
-            updatedMessagesFail.push({
-                "role": "system",
-                "content": "Failed to create applet: database write error."
-            });
-            resumeStreaming(updatedMessagesFail);
+            return;
         }
+
+        AppletMgr.saveAppletFile(commandRunner, appletId, html || "", function(ok) {
+            // Defer model mutations — resumeStreaming modifies model and starts XHR,
+            // calling it directly inside DataSource.onNewData causes a reentrancy segfault
+            Qt.callLater(function() {
+                try {
+                    if (assistantIndex < chatMessageModel.count) {
+                        chatMessageModel.setProperty(assistantIndex, "approvalStatus", ok ? "done" : "failed");
+                        chatMessageModel.setProperty(assistantIndex, "approvalResult", ok ? "Applet saved: " + name : "File write failed");
+                    }
+                    loadAppletList();
+                    loadSessionList();
+                    // Double-defer resumeStreaming to fully escape the DataSource callback stack
+                    Qt.callLater(function() {
+                        var updatedMessages = buildMessageArray();
+                        updatedMessages.push({
+                            "role": "system",
+                            "content": ok ? ("Applet \"" + name + "\" created successfully.") : "Failed to save applet file."
+                        });
+                        resumeStreaming(updatedMessages);
+                    });
+                } catch(e) {
+                    console.log("approveApplet error:", e);
+                }
+            });
+        });
     }
 
     function declineApplet(name, assistantIndex) {
@@ -1538,8 +1531,9 @@ Item {
             return;
         var markdown = "# " + currentSessionTitle + "\n\n" + buildConversationMarkdown() + "\n";
         var destPath = fileUrl.toString().replace("file://", "");
-        // Use heredoc to safely write content through shell
-        var writeCmd = "cat > " + TextHelpers.escapeShellArg(destPath) + " << 'KDE_ASSISTANT_EXPORT_EOF'\n" + markdown + "\nKDE_ASSISTANT_EXPORT_EOF";
+        // Base64 encode then decode through shell — avoids all shell escaping issues
+        var b64 = AppletMgr.b64Encode(markdown);
+        var writeCmd = "echo " + TextHelpers.escapeShellArg(b64) + " | base64 -d > " + TextHelpers.escapeShellArg(destPath);
         commandRunner.execute(writeCmd, function(stdout, stderr, exitCode) {
             if (exitCode === 0) {
                 var notifyOk = "notify-send -i document-save 'KDE Assistant' 'Conversation exported successfully'";

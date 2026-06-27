@@ -11,6 +11,46 @@
 
 .import "TextHelpers.js" as TextHelpers
 
+// ── Pure JS base64 encoder (replaces deprecated Qt.btoa) ──────
+var _b64Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+function b64Encode(str) {
+    var bytes = [];
+    for (var i = 0; i < str.length; i++) {
+        var c = str.charCodeAt(i);
+        if (c < 0x80) {
+            bytes.push(c);
+        } else if (c < 0x800) {
+            bytes.push(0xC0 | (c >> 6));
+            bytes.push(0x80 | (c & 0x3F));
+        } else if (c >= 0xD800 && c <= 0xDBFF) {
+            i++;
+            var c2 = str.charCodeAt(i);
+            var cp = ((c - 0xD800) << 10) + (c2 - 0xDC00) + 0x10000;
+            bytes.push(0xF0 | (cp >> 18));
+            bytes.push(0x80 | ((cp >> 12) & 0x3F));
+            bytes.push(0x80 | ((cp >> 6) & 0x3F));
+            bytes.push(0x80 | (cp & 0x3F));
+        } else {
+            bytes.push(0xE0 | (c >> 12));
+            bytes.push(0x80 | ((c >> 6) & 0x3F));
+            bytes.push(0x80 | (c & 0x3F));
+        }
+    }
+    var result = "";
+    for (var j = 0; j < bytes.length; j += 3) {
+        var b0 = bytes[j];
+        var b1 = j + 1 < bytes.length ? bytes[j + 1] : 0;
+        var b2 = j + 2 < bytes.length ? bytes[j + 2] : 0;
+        var triplet = (b0 << 16) | (b1 << 8) | b2;
+        result += _b64Chars.charAt((triplet >> 18) & 0x3F);
+        result += _b64Chars.charAt((triplet >> 12) & 0x3F);
+        result += j + 1 < bytes.length ? _b64Chars.charAt((triplet >> 6) & 0x3F) : "=";
+        result += j + 2 < bytes.length ? _b64Chars.charAt(triplet & 0x3F) : "=";
+    }
+    return result;
+}
+
 var _runtimes = {
     "deno": {
         name: "Deno",
@@ -42,8 +82,9 @@ function getRuntimeInfo(runtime) {
 function buildCommand(code, runtime) {
     var rt = getRuntimeInfo(runtime);
     var scriptPath = "/tmp/kde_js_" + Date.now() + ".js";
-    // Write code to temp file, then execute
-    var writeCmd = "cat > " + TextHelpers.escapeShellArg(scriptPath) + " << 'KDE_ASSISTANT_JS_EOF'\n" + code + "\nKDE_ASSISTANT_JS_EOF";
+    // Base64 encode then decode through shell — avoids all shell escaping issues
+    var b64 = b64Encode(code || "");
+    var writeCmd = "echo " + TextHelpers.escapeShellArg(b64) + " | base64 -d > " + TextHelpers.escapeShellArg(scriptPath);
     var execCmd = rt.command(scriptPath);
     var cleanupCmd = "rm -f " + TextHelpers.escapeShellArg(scriptPath);
     // Chain: write → execute → cleanup (always cleanup even on failure)
