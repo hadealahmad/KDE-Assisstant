@@ -14,7 +14,7 @@ A feature-rich AI chat plasmoid for **KDE Plasma 6**. Lives in your panel or des
 - **Shell Execution** — AI can run commands with approve/reject approval flow
 - **OpenCode Integration** — Autonomous coding agent with user approval, real-time output streaming, manual stop control, session continuity, and multi-model selection
 - **JavaScript Execution** — Run sandboxed JS code (via Deno) for calculations and data processing with approval flow
-- **Applets** — Create persistent HTML/JS/CSS mini-apps from chat or manually, with shadcn-style design consistency. Open in browser from the Applets page.
+- **Applets** — Create persistent HTML/JS/CSS mini-apps from chat or manually, with shadcn-style design consistency. LLM is aware of existing applets and can update them. Open in browser from the Applets page.
 - **Context Tracker** — Real-time token usage display with color-coded indicators
 - **Window Pinning** — Keep the chat floating above other windows
 - **Mobile Web Access** — Built-in webserver daemon serves a touch-optimized mobile UI with QR code scanning for instant connection
