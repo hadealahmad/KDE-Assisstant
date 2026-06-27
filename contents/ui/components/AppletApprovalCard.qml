@@ -18,6 +18,7 @@ ColumnLayout {
     property string appletHtml: ""
     property string approvalResult: ""
     property bool resultExpanded: false
+    property bool isUpdate: false
 
     signal approved(string name, string description, string html)
     signal declined(string name)
@@ -30,14 +31,14 @@ ColumnLayout {
     Controls.Label {
         text: {
             if (root.approvalStatus === "running")
-                return "📱 Saving applet...";
+                return root.isUpdate ? "📱 Updating applet..." : "📱 Saving applet...";
             if (root.approvalStatus === "declined")
-                return "❌ Applet creation declined by user";
+                return "❌ Applet " + (root.isUpdate ? "update" : "creation") + " declined by user";
             if (root.approvalStatus === "done")
-                return "✅ Applet created successfully";
+                return "✅ Applet " + (root.isUpdate ? "updated" : "created") + " successfully";
             if (root.approvalStatus === "failed")
-                return "❌ Failed to create applet";
-            return "📱 Assistant requests to create an applet:";
+                return "❌ Failed to " + (root.isUpdate ? "update" : "create") + " applet";
+            return root.isUpdate ? "📱 Assistant requests to update an applet:" : "📱 Assistant requests to create an applet:";
         }
         font.bold: true
         color: {
@@ -93,7 +94,7 @@ ColumnLayout {
         }
 
         Controls.Button {
-            text: "Create Applet"
+            text: root.isUpdate ? "Update Applet" : "Create Applet"
             icon.name: "dialog-ok-apply"
             highlighted: true
             onClicked: root.approved(root.appletName, root.appletDescription, root.appletHtml)

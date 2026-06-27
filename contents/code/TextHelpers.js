@@ -115,6 +115,21 @@ function parseCommandTag(text) {
         };
     }
 
+    // [UPDATE_APPLET: id="applet_xxx" name="New Name" description="New desc"]
+    var updateAppletMatch = clean.match(/\[update_applet:\s*([^\]]+)\]/i);
+    if (updateAppletMatch) {
+        var rawUp = updateAppletMatch[1].trim();
+        var idUp = (rawUp.match(/\bid="([^"]+)"/i) || [])[1] || "";
+        var nameUp = (rawUp.match(/\bname="([^"]+)"/i) || [])[1] || "";
+        var descUp = (rawUp.match(/\bdescription="([^"]+)"/i) || [])[1] || "";
+        return {
+            type: "update_applet",
+            id: idUp,
+            name: nameUp,
+            description: descUp
+        };
+    }
+
     return null;
 }
 
@@ -214,6 +229,7 @@ function createDefaultMessage(role, content) {
         appletName: "",
         appletDescription: "",
         appletHtml: "",
+        appletIsUpdate: false,
         thinkingText: "",
         toolOriginalText: ""
     };

@@ -11,7 +11,7 @@
  * @param {Array} memoryContents - array of memory content strings
  * @returns {Object} config object for Api.sendMessage
  */
-function getApiConfig(configuration, memoryContents) {
+function getApiConfig(configuration, memoryContents, appletContents) {
     return {
         apiUrl: configuration.apiUrl,
         apiKey: configuration.apiKey,
@@ -27,6 +27,7 @@ function getApiConfig(configuration, memoryContents) {
         grepMaxResults: configuration.grepMaxResults,
         userNotes: configuration.userNotes,
         memories: memoryContents,
+        applets: appletContents || [],
         prayerLatitude: configuration.prayerLatitude,
         prayerLongitude: configuration.prayerLongitude,
         prayerMethod: configuration.prayerMethod

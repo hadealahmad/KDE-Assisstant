@@ -42,6 +42,7 @@ Kirigami.AbstractCard {
     property string appletName: ""
     property string appletDescription: ""
     property string appletHtml: ""
+    property bool appletIsUpdate: false
     property string memoryContent: ""
     property string memoryId: ""
     property string taskTitle: ""
@@ -427,6 +428,7 @@ Kirigami.AbstractCard {
             appletName: root.appletName
             appletDescription: root.appletDescription
             appletHtml: root.appletHtml
+            isUpdate: root.appletIsUpdate
             approvalResult: root.approvalResult
             resultExpanded: root.resultExpanded
             onResultExpandedChanged: root.resultExpanded = resultExpanded

@@ -200,7 +200,16 @@ function sendMessage(messages, config, onStreaming, onComplete, onError) {
         "   - Use CSS custom properties (variables) for all colors to enable dark mode\n" +
         "   - Include a prefers-color-scheme: dark media query with the dark palette\n" +
         "   - Keep all applets visually consistent with each other — same card style, typography, spacing\n" +
-        "   Examples: tip calculator, RSS reader, payment tracker, unit converter, Pomodoro timer";
+        "   Examples: tip calculator, RSS reader, payment tracker, unit converter, Pomodoro timer\n\n" +
+        "10. Applet Update:\n" +
+        "   To modify an existing applet, use the [UPDATE_APPLET:] tag with the applet's ID.\n" +
+        "   Format: `[UPDATE_APPLET: id=\"applet_id\" name=\"New Name\" description=\"New desc\"]`\n" +
+        "   Then output the complete replacement HTML/JS/CSS in a fenced code block immediately after.\n" +
+        "   The existing applet list is shown in the 'Existing Applets' section of your system prompt.\n" +
+        "   When the user asks to add features to an existing applet, use this tag with the applet's ID.\n" +
+        "   - The old HTML is completely replaced with the new code\n" +
+        "   - Follow the same shadcn/ui design guidelines as for new applets\n" +
+        "   - The name and description are updated only if provided; otherwise they stay the same";
 
     // ── Inject prayer times instructions ──
     baseSystemPrompt += PrayerTimes.buildPrayerTimesInstructions(
@@ -238,6 +247,15 @@ function sendMessage(messages, config, onStreaming, onComplete, onError) {
             memoriesBlock += "- " + config.memories[mi] + "\n";
         }
         baseSystemPrompt = memoriesBlock + "\n" + baseSystemPrompt;
+    }
+
+    // ── Inject existing applets list ──
+    if (config.applets && config.applets.length > 0) {
+        var appletsBlock = "## Existing Applets\nThe user has the following saved applets. You can reference them, or use [UPDATE_APPLET: id=\"...\" name=\"...\" description=\"...\"] followed by a fenced HTML code block to modify one.\n";
+        for (var ai = 0; ai < config.applets.length; ai++) {
+            appletsBlock += "- " + config.applets[ai] + "\n";
+        }
+        baseSystemPrompt = appletsBlock + "\n" + baseSystemPrompt;
     }
 
     if (config.searchEnabled) {

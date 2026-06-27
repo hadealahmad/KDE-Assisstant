@@ -556,6 +556,7 @@ Item {
             chatMessageModel.setProperty(assistantIndex, "appletName", cmdTag.name);
             chatMessageModel.setProperty(assistantIndex, "appletDescription", cmdTag.description);
             chatMessageModel.setProperty(assistantIndex, "appletHtml", htmlContent || "");
+            chatMessageModel.setProperty(assistantIndex, "appletIsUpdate", false);
             chatMessageModel.setProperty(assistantIndex, "approvalStatus", "pending");
             chatMessageModel.setProperty(assistantIndex, "approvalResult", "");
             var appletDbContent = JSON.stringify({
@@ -568,6 +569,44 @@ Item {
             });
             var appletMsgId = Db.saveMessage(db, currentSessionId, "applet_approval", appletDbContent);
             chatMessageModel.setProperty(assistantIndex, "messageId", appletMsgId);
+            loadSessionList();
+            chatPage.positionViewAtEnd();
+        } else if (cmdTag.type === "update_applet") {
+            var currentContentUpApplet = chatMessageModel.get(assistantIndex).content || "";
+            var preservedThinkingUpApplet = TextHelpers.extractThinkingText(currentContentUpApplet);
+            var fullResponseUp = currentContentUpApplet;
+            var htmlContentUp = AppletMgr.extractHtmlFromResponse(fullResponseUp);
+            // Look up existing applet name for the card
+            var existingApplet = Db.getApplet(db, cmdTag.id);
+            var displayName = cmdTag.name || (existingApplet ? existingApplet.name : "Unknown Applet");
+            var displayDesc = cmdTag.description || (existingApplet ? existingApplet.description : "");
+            chatMessageModel.setProperty(assistantIndex, "role", "applet_approval");
+            chatMessageModel.setProperty(assistantIndex, "content", JSON.stringify({
+                "id": cmdTag.id,
+                "name": displayName,
+                "description": displayDesc,
+                "html": htmlContentUp || "",
+                "isUpdate": true
+            }));
+            chatMessageModel.setProperty(assistantIndex, "thinkingText", preservedThinkingUpApplet);
+            chatMessageModel.setProperty(assistantIndex, "appletName", displayName);
+            chatMessageModel.setProperty(assistantIndex, "appletDescription", displayDesc);
+            chatMessageModel.setProperty(assistantIndex, "appletHtml", htmlContentUp || "");
+            chatMessageModel.setProperty(assistantIndex, "appletIsUpdate", true);
+            chatMessageModel.setProperty(assistantIndex, "approvalStatus", "pending");
+            chatMessageModel.setProperty(assistantIndex, "approvalResult", "");
+            var upAppletDbContent = JSON.stringify({
+                "id": cmdTag.id,
+                "name": displayName,
+                "description": displayDesc,
+                "html": htmlContentUp || "",
+                "status": "pending",
+                "result": "",
+                "isUpdate": true,
+                "thinking": preservedThinkingUpApplet || ""
+            });
+            var upAppletMsgId = Db.saveMessage(db, currentSessionId, "applet_approval", upAppletDbContent);
+            chatMessageModel.setProperty(assistantIndex, "messageId", upAppletMsgId);
             loadSessionList();
             chatPage.positionViewAtEnd();
         } else if (cmdTag.type === "remember") {
@@ -829,7 +868,12 @@ Item {
         for (var i = 0; i < memObjs.length; i++) {
             memStrings.push(memObjs[i].content);
         }
-        return Streaming.getApiConfig(Plasmoid.configuration, memStrings);
+        var appletObjs = Db.listApplets(db);
+        var appletStrings = [];
+        for (var j = 0; j < appletObjs.length; j++) {
+            appletStrings.push(appletObjs[j].id + ": " + appletObjs[j].name + (appletObjs[j].description ? " — " + appletObjs[j].description : ""));
+        }
+        return Streaming.getApiConfig(Plasmoid.configuration, memStrings, appletStrings);
     }
 
     function updateContextUsage() {
@@ -1211,7 +1255,21 @@ Item {
         chatMessageModel.setProperty(assistantIndex, "approvalStatus", "running");
         chatMessageModel.setProperty(assistantIndex, "approvalResult", "");
 
-        var appletId = Db.createApplet(db, name, description, html || "");
+        // Check if this is an update (has an existing applet ID)
+        var contentJson = chatMessageModel.get(assistantIndex).content || "";
+        var existingId = "";
+        try { var parsed = JSON.parse(contentJson); existingId = parsed.id || ""; } catch(e) {}
+
+        var appletId = "";
+        if (existingId) {
+            // Update existing applet
+            Db.updateApplet(db, existingId, name, description, html || "");
+            appletId = existingId;
+        } else {
+            // Create new applet
+            appletId = Db.createApplet(db, name, description, html || "");
+        }
+
         if (!appletId || appletId === "") {
             chatMessageModel.setProperty(assistantIndex, "approvalStatus", "failed");
             chatMessageModel.setProperty(assistantIndex, "approvalResult", "DB error");
@@ -1219,23 +1277,22 @@ Item {
             return;
         }
 
+        var isUpdate = !!existingId;
         AppletMgr.saveAppletFile(commandRunner, appletId, html || "", function(ok) {
-            // Defer model mutations — resumeStreaming modifies model and starts XHR,
-            // calling it directly inside DataSource.onNewData causes a reentrancy segfault
             Qt.callLater(function() {
                 try {
                     if (assistantIndex < chatMessageModel.count) {
                         chatMessageModel.setProperty(assistantIndex, "approvalStatus", ok ? "done" : "failed");
-                        chatMessageModel.setProperty(assistantIndex, "approvalResult", ok ? "Applet saved: " + name : "File write failed");
+                        chatMessageModel.setProperty(assistantIndex, "approvalResult", ok ? ("Applet " + (isUpdate ? "updated" : "saved") + ": " + name) : "File write failed");
                     }
                     loadAppletList();
                     loadSessionList();
-                    // Double-defer resumeStreaming to fully escape the DataSource callback stack
                     Qt.callLater(function() {
                         var updatedMessages = buildMessageArray();
+                        var verb = isUpdate ? "updated" : "created";
                         updatedMessages.push({
                             "role": "system",
-                            "content": ok ? ("Applet \"" + name + "\" has been saved successfully. Do NOT create it again — the task is complete. Tell the user the applet is ready and can be opened from the Applets page.") : "Failed to save applet file."
+                            "content": ok ? ("Applet \"" + name + "\" has been " + verb + " successfully. Do NOT " + (isUpdate ? "update" : "create") + " it again — the task is complete. Tell the user the applet is ready and can be opened from the Applets page.") : "Failed to save applet file."
                         });
                         resumeStreaming(updatedMessages);
                     });
@@ -1721,6 +1778,7 @@ Item {
             var appletNameDb = "";
             var appletDescDb = "";
             var appletHtmlDb = "";
+            var appletIsUpdateDb = false;
             var appletApprovalStatus = "pending";
             var appletApprovalResult = "";
             if (isAppletApprovalMsg) {
@@ -1729,13 +1787,15 @@ Item {
                     appletNameDb = appletParsed.name || "";
                     appletDescDb = appletParsed.description || "";
                     appletHtmlDb = appletParsed.html || "";
+                    appletIsUpdateDb = appletParsed.isUpdate || false;
                     appletApprovalStatus = appletParsed.status || "pending";
                     appletApprovalResult = appletParsed.result || "";
                     preservedThinkingFromDb = appletParsed.thinking || "";
                     content = JSON.stringify({
                         "name": appletNameDb,
                         "description": appletDescDb,
-                        "html": appletHtmlDb
+                        "html": appletHtmlDb,
+                        "isUpdate": appletIsUpdateDb
                     });
                 } catch (e) {
                     appletNameDb = content;
@@ -1768,6 +1828,7 @@ Item {
             msg.appletName = appletNameDb;
             msg.appletDescription = appletDescDb;
             msg.appletHtml = appletHtmlDb;
+            msg.appletIsUpdate = appletIsUpdateDb;
             if (isJsExecMsg) {
                 msg.approvalStatus = jsStatusDb;
                 msg.approvalResult = jsOutputDb;
