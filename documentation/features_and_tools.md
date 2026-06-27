@@ -95,6 +95,12 @@ Creates a persistent HTML/JS/CSS mini-application the user can access later from
   3. User approves → applet is saved to the database and HTML file at `~/.local/share/kdeassistant/applets/<id>.html`.
   4. User can open applets in the browser from the Applets page, or create new ones manually via the editor dialog.
 - **Management:** The Applets page lists all saved applets with Open and Delete actions. A "+" button opens a manual editor with name, description, and monospace code textarea.
+- **Applet Awareness:** The LLM is aware of all existing applets (ID, name, description) via the system prompt. It can reference them in conversation and update them.
+- **Applet Update (`[UPDATE_APPLET:]`):**
+  - **Format:** `[UPDATE_APPLET: id="applet_id" name="New Name" description="New desc"]` followed by a fenced HTML code block.
+  - The existing HTML is completely replaced with the new code.
+  - Name and description are updated only if provided; otherwise they stay the same.
+  - The approval card shows "Update Applet" instead of "Create Applet".
 
 ---
 
