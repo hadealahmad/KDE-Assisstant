@@ -2266,9 +2266,8 @@ Item {
             db: fullRepRoot.db
             onBackClicked: appletsViewActive = false
             onOpenApplet: function(appletId) {
-                var path = "$HOME/.local/share/kdeassistant/applets/" + appletId + ".html";
-                var resolved = path.replace("$HOME", Qt.getenv("HOME") || "/home/user");
-                Qt.openUrlExternally("file://" + resolved);
+                // Use xdg-open via shell so $HOME gets expanded by the shell
+                executeCommandLine("xdg-open \"$HOME/.local/share/kdeassistant/applets/" + appletId + ".html\"");
             }
             onDeleteApplet: function(appletId) {
                 fullRepRoot.deleteApplet(appletId);
