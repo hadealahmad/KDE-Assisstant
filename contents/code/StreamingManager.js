@@ -165,11 +165,8 @@ function buildMessageArray(messageModel, AttachmentHelpers) {
                 var jsCode = m.jsCode || "";
                 var jsStatus = m.jsStatus || "";
                 var jsOutput = m.jsOutput || "";
-                arr.push({
-                    role: "assistant",
-                    content: "[JS_RUN: " + jsCode + "]"
-                });
                 if (jsStatus === "success" || jsStatus === "failed") {
+                    // Already executed — don't re-emit the tag, just report the result
                     arr.push({
                         role: "system",
                         content: "JavaScript execution " + jsStatus + ". Output:\n" + jsOutput
@@ -179,24 +176,34 @@ function buildMessageArray(messageModel, AttachmentHelpers) {
                         role: "system",
                         content: "JavaScript execution declined by user."
                     });
+                } else {
+                    // Still pending — emit the original tag
+                    arr.push({
+                        role: "assistant",
+                        content: "[JS_RUN: " + jsCode + "]"
+                    });
                 }
             } else if (role === "applet_approval") {
                 var appletNameSa = m.appletName || "";
                 var appletDescSa = m.appletDescription || "";
                 var appletStatusSa = m.approvalStatus || "";
-                arr.push({
-                    role: "assistant",
-                    content: "[CREATE_APPLET: name=\"" + appletNameSa + "\" description=\"" + appletDescSa + "\"]"
-                });
                 if (appletStatusSa === "done") {
+                    // Don't re-emit the tag — the LLM would create the applet again.
+                    // Just inform that it was already created.
                     arr.push({
                         role: "system",
-                        content: "Applet \"" + appletNameSa + "\" created successfully."
+                        content: "Applet \"" + appletNameSa + "\" was already created successfully."
                     });
                 } else if (appletStatusSa === "declined") {
                     arr.push({
                         role: "system",
                         content: "Applet creation declined by user for: \"" + appletNameSa + "\"."
+                    });
+                } else {
+                    // Still pending — emit the original tag
+                    arr.push({
+                        role: "assistant",
+                        content: "[CREATE_APPLET: name=\"" + appletNameSa + "\" description=\"" + appletDescSa + "\"]"
                     });
                 }
             } else if (role === "memory") {
