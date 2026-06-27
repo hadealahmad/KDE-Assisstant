@@ -59,6 +59,43 @@ Triggers the OpenCode autonomous coding agent to perform code changes with user 
 - **Session Continuity:** The first run captures the OpenCode session ID. Subsequent runs in the same KDE Assistant session reuse the same OpenCode session via `--session <id>`, maintaining conversation context across multiple coding tasks.
 - **Model Selection:** Users can choose from preset models (opencode/mimo-v2.5-free, opencode/deepseek-v4-flash-free, opencode/claude-sonnet-4-6, opencode/gpt-5.4-mini, ollama/gemma4) or enter a custom model before approval.
 
+### JavaScript Code Execution (`[JS_RUN:]`)
+Runs sandboxed JavaScript code for calculations, data processing, or tasks better solved with code.
+- **Format:** `[JS_RUN: your javascript code here]`
+- **Examples:**
+  - `[JS_RUN: console.log(42 + 58)]`
+  - `[JS_RUN: const data = [{name: "Alice", age: 30}, {name: "Bob", age: 25}]; console.log(JSON.stringify(data.sort((a,b) => a.age - b.age), null, 2))]`
+  - `[JS_RUN: const resp = await fetch("https://api.github.com/users/octocat"); const user = await resp.json(); console.log(JSON.stringify({name: user.name, repos: user.public_repos}, null, 2))]`
+- **Sandboxing:** Code runs via Deno (default) with `--allow-read --allow-net` flags — read filesystem and network access only, no writes, no environment variables, no process execution. Node.js and Bun are available as alternatives but without sandboxing.
+- **Flow:**
+  1. LLM outputs the `[JS_RUN:...]` tag and halts generation.
+  2. An approval card shows the code for review (unless auto-approve is enabled in settings).
+  3. User approves → code is written to a temp file via base64, executed, and output is captured.
+  4. Results are shown in a collapsible output block and fed back to the LLM.
+- **Config:** `jsRuntime` (deno/node/bun), `jsAutoApprove` (skip approval dialog).
+
+### Applet Creation (`[CREATE_APPLET:]`)
+Creates a persistent HTML/JS/CSS mini-application the user can access later from the Applets page.
+- **Format:** `[CREATE_APPLET: name="Applet Name" description="What it does"]` followed by a fenced HTML code block.
+- **Example:**
+  ```
+  [CREATE_APPLET: name="Tip Calculator" description="Calculate tips quickly"]
+  ```html
+  <!DOCTYPE html>
+  <html>
+  <head><style>/* CSS */</style></head>
+  <body>/* HTML + JS */</body>
+  </html>
+  ```
+  ```
+- **Design Guidelines:** All applets follow a consistent shadcn/ui-inspired style with rounded cards, neutral color palette, system fonts, CSS custom properties for dark mode, and uniform spacing.
+- **Flow:**
+  1. LLM outputs the `[CREATE_APPLET:...]` tag followed by HTML in a fenced code block.
+  2. An approval card shows the applet name and description for review.
+  3. User approves → applet is saved to the database and HTML file at `~/.local/share/kdeassistant/applets/<id>.html`.
+  4. User can open applets in the browser from the Applets page, or create new ones manually via the editor dialog.
+- **Management:** The Applets page lists all saved applets with Open and Delete actions. A "+" button opens a manual editor with name, description, and monospace code textarea.
+
 ---
 
 ## 2. Notification and Error Handling

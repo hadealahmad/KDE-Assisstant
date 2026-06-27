@@ -196,6 +196,17 @@ function deleteSession(db, sessionId) {
     }
 }
 
+function clearAllSessions(db) {
+    try {
+        db.transaction(function (tx) {
+            tx.executeSql("DELETE FROM messages");
+            tx.executeSql("DELETE FROM sessions");
+        });
+    } catch (e) {
+        console.error("clearAllSessions error:", e);
+    }
+}
+
 // ──────────────────────────────────────────────
 // Memory CRUD (Approach 2 — [REMEMBER: ...])
 // ──────────────────────────────────────────────

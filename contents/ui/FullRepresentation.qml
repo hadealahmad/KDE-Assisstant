@@ -45,6 +45,7 @@ Item {
     property bool memoriesViewActive: false
     property bool tasksViewActive: false
     property bool appletsViewActive: false
+    property bool _sessionSavedToDb: false
     // ── External DB Change Sync State ──────────────────────────
     property var lastMaxSessionTime: 0
     property var lastSessionCount: 0
@@ -1234,7 +1235,7 @@ Item {
                         var updatedMessages = buildMessageArray();
                         updatedMessages.push({
                             "role": "system",
-                            "content": ok ? ("Applet \"" + name + "\" created successfully.") : "Failed to save applet file."
+                            "content": ok ? ("Applet \"" + name + "\" has been saved successfully. Do NOT create it again — the task is complete. Tell the user the applet is ready and can be opened from the Applets page.") : "Failed to save applet file."
                         });
                         resumeStreaming(updatedMessages);
                     });
@@ -1554,7 +1555,7 @@ Item {
         recentlyCreatedTaskTitles = [];
         currentSessionId = TextHelpers.generateId();
         currentSessionTitle = "New Chat";
-        Db.createSession(db, currentSessionId, currentSessionTitle);
+        _sessionSavedToDb = false;
         loadSessionList();
         historyViewActive = false;
         tasksViewActive = false;
@@ -1574,6 +1575,7 @@ Item {
         recentlyCreatedTaskTitles = [];
         currentSessionId = sessionId;
         currentSessionTitle = sessionTitle;
+        _sessionSavedToDb = true;
 
         // Restore metadata/streaming state if this session had background work
         _restoreSessionState(sessionId);
@@ -1805,6 +1807,12 @@ Item {
             attachmentsJson = AttachmentHelpers.serializeAttachments(pendingAttachments);
             pendingAttachments = [];
             pendingAttachmentsChanged();
+        }
+        // Create DB session on first message (deferred from startNewSession)
+        if (!_sessionSavedToDb) {
+            Db.createSession(db, currentSessionId, currentSessionTitle);
+            _sessionSavedToDb = true;
+            loadSessionList();
         }
         // Add user message
         var userMsg = TextHelpers.createDefaultMessage("user", text || "");
@@ -2233,6 +2241,10 @@ Item {
                 fullRepRoot.loadSession(sessionId, sessionTitle);
             }
             onStartNewSession: fullRepRoot.startNewSession()
+            onClearAllSessions: {
+                Db.clearAllSessions(fullRepRoot.db);
+                fullRepRoot.startNewSession();
+            }
         }
 
         // PAGE 2: Memories View

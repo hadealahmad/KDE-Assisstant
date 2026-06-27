@@ -169,7 +169,7 @@ function buildMessageArray(messageModel, AttachmentHelpers) {
                     // Already executed — don't re-emit the tag, just report the result
                     arr.push({
                         role: "system",
-                        content: "JavaScript execution " + jsStatus + ". Output:\n" + jsOutput
+                        content: "JavaScript execution already completed (" + jsStatus + "). Do NOT re-run it. Output:\n" + jsOutput
                     });
                 } else if (jsStatus === "declined") {
                     arr.push({
@@ -189,10 +189,10 @@ function buildMessageArray(messageModel, AttachmentHelpers) {
                 var appletStatusSa = m.approvalStatus || "";
                 if (appletStatusSa === "done") {
                     // Don't re-emit the tag — the LLM would create the applet again.
-                    // Just inform that it was already created.
+                    // Explicitly tell the LLM the task is complete.
                     arr.push({
                         role: "system",
-                        content: "Applet \"" + appletNameSa + "\" was already created successfully."
+                        content: "Applet \"" + appletNameSa + "\" was already created and saved. The task is complete — do NOT create it again. Just confirm to the user that the applet is ready."
                     });
                 } else if (appletStatusSa === "declined") {
                     arr.push({

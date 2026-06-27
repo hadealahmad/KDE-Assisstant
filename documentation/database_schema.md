@@ -27,7 +27,7 @@ On startup, `webserver_daemon.py` walks its parent process tree (`/proc/<pid>/st
 
 ## 2. Table Definitions
 
-The SQLite database contains six tables initialized in [Database.js](file:///run/media/hadi/SSD2/Coding/KDE%20Assisstant/contents/code/Database.js):
+The SQLite database contains seven tables initialized in [Database.js](file:///run/media/hadi/SSD2/Coding/KDE%20Assisstant/contents/code/Database.js):
 
 ```mermaid
 erDiagram
@@ -90,6 +90,15 @@ erDiagram
         integer created_at
     }
 
+    APPLETS {
+        text id PK
+        text name
+        text description
+        text html_content
+        integer created_at
+        integer updated_at
+    }
+
     SCHEMA_VERSION {
         integer version PK
     }
@@ -120,11 +129,15 @@ Stores individual conversation blocks.
   - `"system_command"`: Interactive CLI results.
   - `"setting_approval"`: Command change requests.
   - `"opencode_approval"`: OpenCode autonomous coding approval cards.
+  - `"js_execution"`: JavaScript code execution requests and results.
+  - `"applet_approval"`: Applet creation approval cards.
 - `content` (TEXT NOT NULL): The text payload. For cards, contains a JSON-serialized object:
   - **Memory Card:** `{"id": "mem_xxx", "content": "fact content"}`
   - **Task Card:** `{"taskId": "task_xxx", "title": "...", "groupId": "...", "priority": 0, "dueDate": ""}`
   - **System Command Card:** `{"command": "...", "output": "...", "status": "success|failed|running|pending"}`
   - **OpenCode Card:** `{"instruction": "...", "files": "...", "model": "...", "status": "pending|running|done|failed|declined", "output": "..."}` — Status values: `"pending"` (awaiting approval), `"running"` (executing), `"done"` (success), `"failed"` (error, timeout, or manually stopped), `"declined"` (user rejected). Output for manual stop: `"(Stopped by user)"`. Output for timeout: `"(Timed out after 5 minutes)"`. Output for Plasma restart: `"(Process lost — Plasma was restarted while OpenCode was running)"`.
+  - **JS Execution Card:** `{"code": "...", "status": "pending|running|success|failed|declined", "output": "...", "thinking": "..."}`
+  - **Applet Approval Card:** `{"name": "...", "description": "...", "html": "...", "status": "pending|done|declined|failed", "result": "...", "thinking": "..."}`
 - `timestamp` (INTEGER NOT NULL): Milliseconds since epoch.
 
 ### Table: `memories`
@@ -164,3 +177,14 @@ Tracks nested lists inside tasks.
 - `completed` (INTEGER DEFAULT 0): Boolean integer (`1` or `0`).
 - `sort_order` (INTEGER DEFAULT 0): Order index.
 - `created_at` (INTEGER NOT NULL): Milliseconds since epoch.
+
+### Table: `applets`
+Stores persistent HTML/JS/CSS mini-applications created by the LLM or manually by the user.
+- `id` (TEXT PRIMARY KEY): Unique applet ID (e.g. `applet_mqwq0qn2_psl510`).
+- `name` (TEXT NOT NULL): Applet display name.
+- `description` (TEXT DEFAULT ''): Brief description of what the applet does.
+- `html_content` (TEXT NOT NULL): The complete HTML/JS/CSS source code.
+- `created_at` (INTEGER NOT NULL): Milliseconds since epoch.
+- `updated_at` (INTEGER NOT NULL): Timestamp of last modification.
+
+Applet HTML files are also saved to disk at `~/.local/share/kdeassistant/applets/<id>.html` for browser access.

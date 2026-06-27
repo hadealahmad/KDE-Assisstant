@@ -23,6 +23,7 @@ Item {
     signal backClicked()
     signal loadSession(string sessionId, string sessionTitle)
     signal startNewSession()
+    signal clearAllSessions()
 
     function reload() {
         if (!db) return;
@@ -56,7 +57,8 @@ Item {
             title: "History"
             onBackClicked: historyPageRoot.backClicked()
             actionButtons: [
-                { icon: "list-add", tooltip: "New Chat", onClicked: function() { historyPageRoot.startNewSession(); } }
+                { icon: "list-add", tooltip: "New Chat", onClicked: function() { historyPageRoot.startNewSession(); } },
+                { icon: "edit-clear", tooltip: "Clear All Chats", onClicked: function() { clearAllConfirm.open(); } }
             ]
         }
 
@@ -167,6 +169,20 @@ Item {
             } else {
                 historyPageRoot.reload();
             }
+        }
+    }
+
+    // ── Clear All confirmation ────────────────────────────────
+    Components.ConfirmOverlay {
+        id: clearAllConfirm
+
+        title: "Clear all chat history?"
+        message: "All conversations will be permanently deleted. This cannot be undone."
+        confirmText: "Clear All"
+        confirmIcon: "edit-clear"
+        destructive: true
+        onConfirmed: function() {
+            historyPageRoot.clearAllSessions();
         }
     }
 }

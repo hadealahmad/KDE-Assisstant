@@ -48,6 +48,10 @@ This is a standard INI-style configuration file managed automatically by Plasma'
 - `webserverPort` (Int, default: `8080`): The local network port.
 - `webserverToken` (String, default: `""`): Generated 6-character authentication token passcode.
 
+### Code Execution Configurations
+- `jsRuntime` (String, default: `deno`): JavaScript runtime for `[JS_RUN:]` execution (`deno`, `node`, `bun`). Deno is recommended for its built-in permission sandboxing.
+- `jsAutoApprove` (Bool, default: `false`): When enabled, JS code executes immediately without showing the approval dialog.
+
 ### Prayer Times Configurations
 - `prayerLatitude` (Double, default: `0`): Latitude coordinate for Islamic prayer time calculation.
 - `prayerLongitude` (Double, default: `0`): Longitude coordinate for Islamic prayer time calculation.
@@ -73,3 +77,7 @@ KDE Assistant organizes its configurations and offline caches in the following d
 ### Downloaded Piper TTS Voice Caches
 `~/.local/share/kdeassistant/tts/`
 - Voice model paths (e.g. `en_US-amy-low.onnx`, `en_US-amy-low.onnx.json`) downloaded from Hugging Face for Piper execution are saved here.
+
+### Saved Applets
+`~/.local/share/kdeassistant/applets/`
+- HTML files for each saved applet (`<id>.html`). Opened in the browser via the Applets page.
