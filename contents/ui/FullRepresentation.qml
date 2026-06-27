@@ -557,6 +557,7 @@ Item {
             chatMessageModel.setProperty(assistantIndex, "appletDescription", cmdTag.description);
             chatMessageModel.setProperty(assistantIndex, "appletHtml", htmlContent || "");
             chatMessageModel.setProperty(assistantIndex, "appletIsUpdate", false);
+            chatMessageModel.setProperty(assistantIndex, "appletId", "");
             chatMessageModel.setProperty(assistantIndex, "approvalStatus", "pending");
             chatMessageModel.setProperty(assistantIndex, "approvalResult", "");
             var appletDbContent = JSON.stringify({
@@ -593,6 +594,7 @@ Item {
             chatMessageModel.setProperty(assistantIndex, "appletDescription", displayDesc);
             chatMessageModel.setProperty(assistantIndex, "appletHtml", htmlContentUp || "");
             chatMessageModel.setProperty(assistantIndex, "appletIsUpdate", true);
+            chatMessageModel.setProperty(assistantIndex, "appletId", cmdTag.id);
             chatMessageModel.setProperty(assistantIndex, "approvalStatus", "pending");
             chatMessageModel.setProperty(assistantIndex, "approvalResult", "");
             var upAppletDbContent = JSON.stringify({
@@ -1270,6 +1272,10 @@ Item {
             appletId = Db.createApplet(db, name, description, html || "");
         }
 
+        // Store the ID on the model so StreamingManager can access it
+        if (assistantIndex < chatMessageModel.count)
+            chatMessageModel.setProperty(assistantIndex, "appletId", appletId);
+
         if (!appletId || appletId === "") {
             chatMessageModel.setProperty(assistantIndex, "approvalStatus", "failed");
             chatMessageModel.setProperty(assistantIndex, "approvalResult", "DB error");
@@ -1779,6 +1785,7 @@ Item {
             var appletDescDb = "";
             var appletHtmlDb = "";
             var appletIsUpdateDb = false;
+            var appletIdDb = "";
             var appletApprovalStatus = "pending";
             var appletApprovalResult = "";
             if (isAppletApprovalMsg) {
@@ -1788,6 +1795,7 @@ Item {
                     appletDescDb = appletParsed.description || "";
                     appletHtmlDb = appletParsed.html || "";
                     appletIsUpdateDb = appletParsed.isUpdate || false;
+                    appletIdDb = appletParsed.id || "";
                     appletApprovalStatus = appletParsed.status || "pending";
                     appletApprovalResult = appletParsed.result || "";
                     preservedThinkingFromDb = appletParsed.thinking || "";
@@ -1829,6 +1837,7 @@ Item {
             msg.appletDescription = appletDescDb;
             msg.appletHtml = appletHtmlDb;
             msg.appletIsUpdate = appletIsUpdateDb;
+            msg.appletId = appletIdDb;
             if (isJsExecMsg) {
                 msg.approvalStatus = jsStatusDb;
                 msg.approvalResult = jsOutputDb;

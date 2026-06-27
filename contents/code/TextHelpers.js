@@ -230,6 +230,7 @@ function createDefaultMessage(role, content) {
         appletDescription: "",
         appletHtml: "",
         appletIsUpdate: false,
+        appletId: "",
         thinkingText: "",
         toolOriginalText: ""
     };

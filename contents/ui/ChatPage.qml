@@ -212,6 +212,7 @@ Item {
                     appletDescription: delegateRoot.modelData.appletDescription ?? ""
                     appletHtml: delegateRoot.modelData.appletHtml ?? ""
                     appletIsUpdate: delegateRoot.modelData.appletIsUpdate ?? false
+                    appletId: delegateRoot.modelData.appletId ?? ""
                     preservedThinkingText: delegateRoot.modelData.thinkingText ?? ""
                     onApproveSettingRequested: function(command, description, index) {
                         chatPageRoot.approveSettingRequested(command, description, index);

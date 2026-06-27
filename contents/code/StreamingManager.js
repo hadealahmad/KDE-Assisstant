@@ -188,24 +188,36 @@ function buildMessageArray(messageModel, AttachmentHelpers) {
                 var appletNameSa = m.appletName || "";
                 var appletDescSa = m.appletDescription || "";
                 var appletStatusSa = m.approvalStatus || "";
+                var appletIsUpdateSa = m.appletIsUpdate || false;
+                var appletIdSa = m.appletId || "";
                 if (appletStatusSa === "done") {
-                    // Don't re-emit the tag — the LLM would create the applet again.
+                    // Don't re-emit the tag — the LLM would re-create/re-update the applet.
                     // Explicitly tell the LLM the task is complete.
+                    var verb = appletIsUpdateSa ? "updated" : "created and saved";
+                    var avoidVerb = appletIsUpdateSa ? "update" : "create";
                     arr.push({
                         role: "system",
-                        content: "Applet \"" + appletNameSa + "\" was already created and saved. The task is complete — do NOT create it again. Just confirm to the user that the applet is ready."
+                        content: "Applet \"" + appletNameSa + "\" was already " + verb + ". The task is complete — do NOT " + avoidVerb + " it again. Just confirm to the user that the applet is ready."
                     });
                 } else if (appletStatusSa === "declined") {
+                    var action = appletIsUpdateSa ? "update" : "creation";
                     arr.push({
                         role: "system",
-                        content: "Applet creation declined by user for: \"" + appletNameSa + "\"."
+                        content: "Applet " + action + " declined by user for: \"" + appletNameSa + "\"."
                     });
                 } else {
-                    // Still pending — emit the original tag
-                    arr.push({
-                        role: "assistant",
-                        content: "[CREATE_APPLET: name=\"" + appletNameSa + "\" description=\"" + appletDescSa + "\"]"
-                    });
+                    // Still pending — emit the appropriate tag
+                    if (appletIsUpdateSa && appletIdSa) {
+                        arr.push({
+                            role: "assistant",
+                            content: "[UPDATE_APPLET: id=\"" + appletIdSa + "\" name=\"" + appletNameSa + "\" description=\"" + appletDescSa + "\"]"
+                        });
+                    } else {
+                        arr.push({
+                            role: "assistant",
+                            content: "[CREATE_APPLET: name=\"" + appletNameSa + "\" description=\"" + appletDescSa + "\"]"
+                        });
+                    }
                 }
             } else if (role === "memory") {
                 var memOrigText = m.toolOriginalText || "";

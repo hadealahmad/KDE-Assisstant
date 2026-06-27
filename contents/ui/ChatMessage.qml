@@ -43,6 +43,7 @@ Kirigami.AbstractCard {
     property string appletDescription: ""
     property string appletHtml: ""
     property bool appletIsUpdate: false
+    property string appletId: ""
     property string memoryContent: ""
     property string memoryId: ""
     property string taskTitle: ""
