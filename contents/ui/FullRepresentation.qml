@@ -1293,6 +1293,20 @@ Item {
                     }
                     loadAppletList();
                     loadSessionList();
+                    var mid = assistantIndex < chatMessageModel.count ? chatMessageModel.get(assistantIndex).messageId : null;
+                    if (mid && mid !== "") {
+                        var preservedThinking = chatMessageModel.get(assistantIndex).thinkingText || "";
+                        Db.updateMessageContent(db, mid, JSON.stringify({
+                            "id": appletId,
+                            "name": name,
+                            "description": description,
+                            "html": html || "",
+                            "status": ok ? "done" : "failed",
+                            "result": ok ? ("Applet " + (isUpdate ? "updated" : "saved") + ": " + name) : "File write failed",
+                            "isUpdate": isUpdate,
+                            "thinking": preservedThinking || ""
+                        }));
+                    }
                     Qt.callLater(function() {
                         var updatedMessages = buildMessageArray();
                         var verb = isUpdate ? "updated" : "created";
@@ -1316,12 +1330,14 @@ Item {
         if (mid && mid !== "") {
             var cur = chatMessageModel.get(assistantIndex);
             Db.updateMessageContent(db, mid, JSON.stringify({
+                "id": cur.appletId || "",
                 "name": name,
                 "description": cur.appletDescription || "",
                 "html": cur.appletHtml || "",
                 "status": "declined",
                 "result": "",
-                "thinking": ""
+                "isUpdate": cur.appletIsUpdate || false,
+                "thinking": cur.thinkingText || ""
             }));
         }
         loadSessionList();
