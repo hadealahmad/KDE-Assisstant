@@ -762,7 +762,7 @@ Item {
         var config = getApiConfig();
         var capturedSessionId = currentSessionId;
         Api.sendMessage(updatedMessages, config, function(accumulated) {
-            if (!_isSessionActive(capturedSessionId))
+            if (!isStreaming || !_isSessionActive(capturedSessionId))
                 return;
             if (assistantIndex < chatMessageModel.count)
                 chatMessageModel.setProperty(assistantIndex, "content", TextHelpers.preprocessMarkdown(accumulated));
@@ -1423,8 +1423,10 @@ Item {
 
     function stopStreamingAndSave() {
         ttsManager.stopSpeaking();
+        var config = getApiConfig();
+        Api.unloadModel(config);
+        Api.abortActiveRequest(config);
         if (isStreaming) {
-            Api.abortActiveRequest();
             isStreaming = false;
             var targetSessionId = streamingSessionId || currentSessionId;
             streamingSessionId = "";
@@ -1870,6 +1872,7 @@ Item {
         if ((!text && pendingAttachments.length === 0) || isStreaming)
             return ;
 
+        Api.clearStoppedFlag();
         chatPage.setInputText("");
         // Consume pending attachments
         var attachmentsJson = "";
@@ -1909,7 +1912,7 @@ Item {
         var capturedSessionId = currentSessionId;
         Api.sendMessage(buildMessageArray(), config, function(accumulated) {
             // onStreaming — update the last message in-place
-            if (!_isSessionActive(capturedSessionId))
+            if (!isStreaming || !_isSessionActive(capturedSessionId))
                 return;
             if (assistantIndex < chatMessageModel.count)
                 chatMessageModel.setProperty(assistantIndex, "content", TextHelpers.preprocessMarkdown(accumulated));
@@ -2022,40 +2025,39 @@ Item {
         var stopCmd = "pkill -f 'webserver_daemon.py' || true";
         commandRunner.execute(stopCmd, function(stdout, stderr, exitCode) {
             console.log("WEBSERVER_QML: Stopped previous webserver process.");
-            if (enabled) {
-                if (token === "") {
-                    // Generate a token if missing
-                    var chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-                    var generatedToken = "";
-                    for (var k = 0; k < 6; k++) {
-                        generatedToken += chars.charAt(Math.floor(Math.random() * chars.length));
-                    }
-                    token = generatedToken;
-                    Plasmoid.configuration.webserverToken = token;
+            if (token === "") {
+                // Generate a token if missing
+                var chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+                var generatedToken = "";
+                for (var k = 0; k < 6; k++) {
+                    generatedToken += chars.charAt(Math.floor(Math.random() * chars.length));
                 }
-                var apiAddr = Plasmoid.configuration.apiUrl || "http://localhost:11434/v1";
-                var apiKeyVal = Plasmoid.configuration.apiKey || "";
-                var modelVal = Plasmoid.configuration.modelName || "llama3";
-                var sysPromptVal = Plasmoid.configuration.systemPrompt || "You are a helpful assistant.";
-                var searchEnabledVal = Plasmoid.configuration.searchEnabled !== undefined ? Plasmoid.configuration.searchEnabled : true;
-                var prayerLatVal = Plasmoid.configuration.prayerLatitude !== undefined ? Plasmoid.configuration.prayerLatitude : "";
-                var prayerLngVal = Plasmoid.configuration.prayerLongitude !== undefined ? Plasmoid.configuration.prayerLongitude : "";
-                var prayerMethodVal = Plasmoid.configuration.prayerMethod !== undefined ? Plasmoid.configuration.prayerMethod : 3;
-                var userNotesVal = Plasmoid.configuration.userNotes || "";
-                // Get absolute directory path of the plasmoid code/ui
-                var baseDir = Qt.resolvedUrl(".").toString();
-                if (baseDir.indexOf("file://") === 0)
-                    baseDir = baseDir.substring(7);
-
-                if (baseDir.endsWith("/"))
-                    baseDir = baseDir.substring(0, baseDir.length - 1);
-
-                var staticDir = baseDir + "/web";
-                var startCmd = "python3 " + TextHelpers.escapeShellArg(baseDir + "/../code/webserver_daemon.py") + " " + "--port " + port + " " + "--bind 127.0.0.1 " + "--token " + TextHelpers.escapeShellArg(token) + " " + "--api-url " + TextHelpers.escapeShellArg(apiAddr) + " " + "--api-key " + TextHelpers.escapeShellArg(apiKeyVal) + " " + "--model " + TextHelpers.escapeShellArg(modelVal) + " " + "--system-prompt " + TextHelpers.escapeShellArg(sysPromptVal) + " " + "--static-dir " + TextHelpers.escapeShellArg(staticDir) + " " + "--search-enabled " + (searchEnabledVal ? "true" : "false") + " " + "--prayer-latitude " + TextHelpers.escapeShellArg(prayerLatVal.toString()) + " " + "--prayer-longitude " + TextHelpers.escapeShellArg(prayerLngVal.toString()) + " " + "--prayer-method " + TextHelpers.escapeShellArg(prayerMethodVal.toString()) + " " + "--user-notes " + TextHelpers.escapeShellArg(userNotesVal);
-                console.log("WEBSERVER_QML: Launching Webserver command: " + startCmd);
-                activeWebserverCommand = startCmd;
-                commandRunner.execute(startCmd);
+                token = generatedToken;
+                Plasmoid.configuration.webserverToken = token;
             }
+            var apiAddr = Plasmoid.configuration.apiUrl || "http://localhost:11434/v1";
+            var apiKeyVal = Plasmoid.configuration.apiKey || "";
+            var modelVal = Plasmoid.configuration.modelName || "llama3";
+            var sysPromptVal = Plasmoid.configuration.systemPrompt || "You are a helpful assistant.";
+            var searchEnabledVal = Plasmoid.configuration.searchEnabled !== undefined ? Plasmoid.configuration.searchEnabled : true;
+            var prayerLatVal = Plasmoid.configuration.prayerLatitude !== undefined ? Plasmoid.configuration.prayerLatitude : "";
+            var prayerLngVal = Plasmoid.configuration.prayerLongitude !== undefined ? Plasmoid.configuration.prayerLongitude : "";
+            var prayerMethodVal = Plasmoid.configuration.prayerMethod !== undefined ? Plasmoid.configuration.prayerMethod : 3;
+            var userNotesVal = Plasmoid.configuration.userNotes || "";
+            // Get absolute directory path of the plasmoid code/ui
+            var baseDir = Qt.resolvedUrl(".").toString();
+            if (baseDir.indexOf("file://") === 0)
+                baseDir = baseDir.substring(7);
+
+            if (baseDir.endsWith("/"))
+                baseDir = baseDir.substring(0, baseDir.length - 1);
+
+            var staticDir = baseDir + "/web";
+            var bindAddr = enabled ? "0.0.0.0" : "127.0.0.1";
+            var startCmd = "python3 -u " + TextHelpers.escapeShellArg(baseDir + "/../code/webserver_daemon.py") + " " + "--port " + port + " " + "--bind " + bindAddr + " " + "--token " + TextHelpers.escapeShellArg(token) + " " + "--api-url " + TextHelpers.escapeShellArg(apiAddr) + " " + "--api-key " + TextHelpers.escapeShellArg(apiKeyVal) + " " + "--model " + TextHelpers.escapeShellArg(modelVal) + " " + "--system-prompt " + TextHelpers.escapeShellArg(sysPromptVal) + " " + "--static-dir " + TextHelpers.escapeShellArg(staticDir) + " " + "--search-enabled " + (searchEnabledVal ? "true" : "false") + " " + "--prayer-latitude " + TextHelpers.escapeShellArg(prayerLatVal.toString()) + " " + "--prayer-longitude " + TextHelpers.escapeShellArg(prayerLngVal.toString()) + " " + "--prayer-method " + TextHelpers.escapeShellArg(prayerMethodVal.toString()) + " " + "--user-notes " + TextHelpers.escapeShellArg(userNotesVal);
+            console.log("WEBSERVER_QML: Launching Webserver command: " + startCmd);
+            activeWebserverCommand = startCmd;
+            commandRunner.execute(startCmd);
         });
     }
 

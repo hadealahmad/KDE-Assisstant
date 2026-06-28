@@ -16,15 +16,41 @@
 // ──────────────────────────────────────────────
 
 var _activeXhr = null;
+var _stoppedByUser = false;
+var _activeRequestId = null;
 
-function abortActiveRequest() {
+function abortActiveRequest(config) {
+    _stoppedByUser = true;
+
+    // Send abort request to local proxy if we have an active requestId
+    if (_activeRequestId && config) {
+        var port = config.webserverPort || 8080;
+        var token = config.webserverToken || "";
+        var abortUrl = "http://127.0.0.1:" + port + "/api/proxy/abort?token=" + token + "&request_id=" + _activeRequestId;
+        var abortXhr = new XMLHttpRequest();
+        abortXhr.open("POST", abortUrl, true);
+        abortXhr.send();
+        _activeRequestId = null;
+    }
+
     if (_activeXhr) {
-        _activeXhr.onreadystatechange = function () { };
-        _activeXhr.abort();
+        var xhrToAbort = _activeXhr;
         _activeXhr = null;
+        xhrToAbort.onreadystatechange = function () { };
+        try {
+            xhrToAbort.abort();
+        } catch(e) {}
         return true;
     }
     return false;
+}
+
+function clearStoppedFlag() {
+    _stoppedByUser = false;
+}
+
+function isStoppedByUser() {
+    return _stoppedByUser;
 }
 
 // ──────────────────────────────────────────────
@@ -110,10 +136,16 @@ function parseHttpError(xhr) {
 // ──────────────────────────────────────────────
 
 function sendMessage(messages, config, onStreaming, onComplete, onError) {
-    abortActiveRequest();
+    abortActiveRequest(config);
+    // Reset the stop flag for each new request (search callbacks trigger sendMessage recursively)
+    _stoppedByUser = false;
 
-    var baseUrl = (config.apiUrl || "http://localhost:11434/v1").replace(/\/$/, "");
-    var url = baseUrl + "/chat/completions";
+    var port = config.webserverPort || 8080;
+    var token = config.webserverToken || "";
+    var requestId = Date.now() + "_" + Math.floor(Math.random() * 1000000);
+    _activeRequestId = requestId;
+    var proxyUrl = "http://127.0.0.1:" + port + "/api/proxy/chat/completions?token=" + token + "&request_id=" + requestId;
+    var directUrl = (config.apiUrl || "http://localhost:11434/v1").replace(/\/$/, "") + "/chat/completions";
 
     // Build the system prompt
     var baseSystemPrompt = config.systemPrompt && config.systemPrompt.trim() !== ""
@@ -174,7 +206,10 @@ function sendMessage(messages, config, onStreaming, onComplete, onError) {
         "9. Applet Creation:\n" +
         "   Create a persistent mini-application (HTML/JS/CSS) the user can access later.\n" +
         "   Format: `[CREATE_APPLET: name=\"Applet Name\" description=\"What it does\"]`\n" +
-        "   Then output the complete HTML/JS/CSS in a fenced code block immediately after:\n" +
+        "   Then output the complete HTML/JS/CSS in a fenced code block immediately after. The fenced code block MUST be wrapped inside a collapsible details HTML tag for ease of viewing:\n" +
+        "   <details>\n" +
+        "   <summary>View Applet Code</summary>\n" +
+        "   \n" +
         "   ```html\n" +
         "   <!DOCTYPE html>\n" +
         "   <html>\n" +
@@ -182,6 +217,7 @@ function sendMessage(messages, config, onStreaming, onComplete, onError) {
         "   <body>/* HTML + JS */</body>\n" +
         "   </html>\n" +
         "   ```\n" +
+        "   </details>\n" +
         "   - Applets are saved and can be opened in the browser from the Applets page\n" +
         "   - Use vanilla HTML/CSS/JS only — no external dependencies or CDN links\n" +
         "   - Applets should be self-contained single-file applications\n\n" +
@@ -204,7 +240,14 @@ function sendMessage(messages, config, onStreaming, onComplete, onError) {
         "10. Applet Update:\n" +
         "   To modify an existing applet, use the [UPDATE_APPLET:] tag with the applet's ID.\n" +
         "   Format: `[UPDATE_APPLET: id=\"applet_id\" name=\"New Name\" description=\"New desc\"]`\n" +
-        "   Then output the complete replacement HTML/JS/CSS in a fenced code block immediately after.\n" +
+        "   Then output the complete replacement HTML/JS/CSS in a fenced code block immediately after. The fenced code block MUST be wrapped inside a collapsible details HTML tag for ease of viewing:\n" +
+        "   <details>\n" +
+        "   <summary>View Updated Applet Code</summary>\n" +
+        "   \n" +
+        "   ```html\n" +
+        "   ...\n" +
+        "   ```\n" +
+        "   </details>\n" +
         "   The existing applet list is shown in the 'Existing Applets' section of your system prompt.\n" +
         "   When the user asks to add features to an existing applet, use this tag with the applet's ID.\n" +
         "   - The old HTML is completely replaced with the new code\n" +
@@ -285,21 +328,6 @@ function sendMessage(messages, config, onStreaming, onComplete, onError) {
 
     var data = JSON.stringify(requestBody);
 
-    var xhr = new XMLHttpRequest();
-    _activeXhr = xhr;
-
-    xhr.open("POST", url, true);
-    xhr.setRequestHeader("Content-Type", "application/json");
-    if (config.apiKey && config.apiKey.trim() !== "") {
-        xhr.setRequestHeader("Authorization", "Bearer " + config.apiKey.trim());
-    }
-
-    var processedLength = 0;
-    var accumulatedText = "";
-    var accumulatedReasoning = "";
-    var searchExecuted = false;
-    var usageData = null;
-
     // Track search depth limits
     var currentSearchDepth = typeof config.searchDepth === "number" ? config.searchDepth : 3;
     var recursiveConfig = {};
@@ -311,267 +339,304 @@ function sendMessage(messages, config, onStreaming, onComplete, onError) {
         recursiveConfig.searchEnabled = false;
     }
 
-    xhr.onreadystatechange = function () {
-        if (xhr.readyState === 3 || xhr.readyState === 4) {
-            var response = xhr.responseText;
+    executeSend(proxyUrl, true);
 
-            if (response.length > processedLength) {
-                var newChunk = response.substring(processedLength);
-                processedLength = response.length;
+    function executeSend(targetUrl, tryFallback) {
+        var xhr = new XMLHttpRequest();
+        _activeXhr = xhr;
 
-                var lines = newChunk.split("\n");
+        xhr.open("POST", targetUrl, true);
+        xhr.setRequestHeader("Content-Type", "application/json");
+        xhr.setRequestHeader("Connection", "close");
+        if (config.apiKey && config.apiKey.trim() !== "") {
+            xhr.setRequestHeader("Authorization", "Bearer " + config.apiKey.trim());
+        }
 
-                for (var i = 0; i < lines.length; i++) {
-                    var line = lines[i].trim();
-                    if (!line) continue;
+        var processedLength = 0;
+        var accumulatedText = "";
+        var accumulatedReasoning = "";
+        var searchExecuted = false;
+        var usageData = null;
+        var partialLine = "";
 
-                    if (line.indexOf("data: ") === 0) {
-                        line = line.substring(6);
-                    } else {
-                        continue;
-                    }
+        xhr.onreadystatechange = function () {
+            if (_stoppedByUser) return;
+            if (xhr.readyState === 3 || xhr.readyState === 4) {
+                if (_stoppedByUser) return;
+                var response = xhr.responseText;
 
-                    if (line === "[DONE]") continue;
+                if (response.length > processedLength) {
+                    var newChunk = response.substring(processedLength);
+                    processedLength = response.length;
 
-                    try {
-                        var parsed = JSON.parse(line);
+                    var lines = (partialLine + newChunk).split("\n");
+                    partialLine = lines.pop();
 
-                        if (parsed.error) {
-                            var errMsg = parsed.error.message || JSON.stringify(parsed.error);
-                            if (typeof onError === "function") onError(errMsg);
-                            _activeXhr = null;
-                            return;
+                    for (var i = 0; i < lines.length; i++) {
+                        var line = lines[i].trim();
+                        if (!line) continue;
+
+                        if (line.indexOf("data: ") === 0) {
+                            line = line.substring(6);
+                        } else {
+                            continue;
                         }
 
-                        if (parsed.usage) {
-                            usageData = parsed.usage;
-                        }
+                        if (line === "[DONE]") continue;
 
-                        var choices = parsed.choices;
-                        if (choices && choices.length > 0) {
-                            var delta = choices[0].delta;
-                            if (delta) {
-                                var hasNew = false;
-                                var reasoning = delta.reasoning || delta.reasoning_content || delta.thought;
-                                if (reasoning) {
-                                    accumulatedReasoning += reasoning;
-                                    hasNew = true;
-                                }
-                                if (delta.content) {
-                                    accumulatedText += delta.content;
-                                    hasNew = true;
-                                }
+                        try {
+                            var parsed = JSON.parse(line);
 
-                                if (hasNew) {
-                                    var displayText = TextHelpers.formatThinking(accumulatedReasoning) + accumulatedText;
+                            if (parsed.error) {
+                                var errMsg = parsed.error.message || JSON.stringify(parsed.error);
+                                if (typeof onError === "function") onError(errMsg);
+                                _activeXhr = null;
+                                return;
+                            }
 
-                                    // Agent ReAct search loop parsing
-                                    var match = accumulatedText.match(/\[search:\s*([^\]]*)/i);
-                                    var fetchMatch = accumulatedText.match(/\[fetch:\s*([^\]]*)/i);
+                            if (parsed.usage) {
+                                usageData = parsed.usage;
+                            }
 
-                                    if (config.searchEnabled && match) {
-                                        var querySoFar = match[1].trim();
-                                        var closingIndex = accumulatedText.indexOf("]", accumulatedText.indexOf(match[0]));
+                            var choices = parsed.choices;
+                            if (choices && choices.length > 0) {
+                                var delta = choices[0].delta;
+                                if (delta) {
+                                    var hasNew = false;
+                                    var reasoning = delta.reasoning || delta.reasoning_content || delta.thought;
+                                    if (reasoning) {
+                                        accumulatedReasoning += reasoning;
+                                        hasNew = true;
+                                    }
+                                    if (delta.content) {
+                                        accumulatedText += delta.content;
+                                        hasNew = true;
+                                    }
 
-                                        if (closingIndex !== -1 && !searchExecuted) {
-                                            searchExecuted = true;
-                                            var query = querySoFar;
+                                    if (hasNew) {
+                                        var displayText = TextHelpers.formatThinking(accumulatedReasoning) + accumulatedText;
 
-                                            abortActiveRequest();
+                                        // Agent ReAct search loop parsing
+                                        var match = accumulatedText.match(/\[search:\s*([^\]]*)/i);
+                                        var fetchMatch = accumulatedText.match(/\[fetch:\s*([^\]]*)/i);
 
-                                            if (typeof onStreaming === "function") {
-                                                var searchStatus = "🔍 Searching the web for \"" + query + "\"...";
-                                                var statusText = TextHelpers.formatThinking(accumulatedReasoning) + searchStatus;
-                                                onStreaming(statusText);
-                                            }
+                                        if (config.searchEnabled && match) {
+                                            var querySoFar = match[1].trim();
+                                            var closingIndex = accumulatedText.indexOf("]", accumulatedText.indexOf(match[0]));
 
-                                            Search.executeSearch(query, config, function (resultsText) {
-                                                var updatedMessages = appendToLastUserMessage(
-                                                    messages,
-                                                    "\n\n[Web Search Results for \"" + query + "\"]\n" + resultsText
-                                                );
-                                                sendMessage(updatedMessages, recursiveConfig, onStreaming, onComplete, onError);
-                                            }, function (searchError) {
-                                                if (typeof onStreaming === "function") {
-                                                    var searchFailureStatus = "⚠ Web Search Failed: " + searchError + "\n\nGenerating response without search results...";
-                                                    var failureStatusText = TextHelpers.formatThinking(accumulatedReasoning) + searchFailureStatus;
-                                                    onStreaming(failureStatusText);
+                                            if (closingIndex !== -1 && !searchExecuted) {
+                                                searchExecuted = true;
+                                                var query = querySoFar;
+
+                                                abortActiveRequest();
+
+                                                if (typeof onStreaming === "function" && !_stoppedByUser) {
+                                                    var searchStatus = "🔍 Searching the web for \"" + query + "\"...";
+                                                    var statusText = TextHelpers.formatThinking(accumulatedReasoning) + searchStatus;
+                                                    onStreaming(statusText);
                                                 }
 
-                                                var updatedMessages = appendToLastUserMessage(
-                                                    messages,
-                                                    "\n\n[Web Search Failed: " + searchError + "]"
-                                                );
-                                                setTimeout(function () {
+                                                Search.executeSearch(query, config, function (resultsText) {
+                                                    if (_stoppedByUser) return;
+                                                    var updatedMessages = appendToLastUserMessage(
+                                                        messages,
+                                                        "\n\n[Web Search Results for \"" + query + "\"]\n" + resultsText
+                                                    );
                                                     sendMessage(updatedMessages, recursiveConfig, onStreaming, onComplete, onError);
-                                                }, 1500);
-                                            });
-                                            return;
-                                        } else if (!searchExecuted) {
-                                            if (typeof onStreaming === "function") {
-                                                var liveSearchStatus = "🔍 Web Search: " + querySoFar + "...";
-                                                var liveStatusText = TextHelpers.formatThinking(accumulatedReasoning) + liveSearchStatus;
-                                                onStreaming(liveStatusText);
-                                            }
-                                        }
-                                    } else if (config.searchEnabled && fetchMatch) {
-                                        var urlSoFar = fetchMatch[1].trim();
-                                        var closingFetchIndex = accumulatedText.indexOf("]", accumulatedText.indexOf(fetchMatch[0]));
+                                                }, function (searchError) {
+                                                    if (_stoppedByUser) return;
+                                                    if (typeof onStreaming === "function") {
+                                                        var searchFailureStatus = "⚠ Web Search Failed: " + searchError + "\n\nGenerating response without search results...";
+                                                        var failureStatusText = TextHelpers.formatThinking(accumulatedReasoning) + searchFailureStatus;
+                                                        onStreaming(failureStatusText);
+                                                    }
 
-                                        if (closingFetchIndex !== -1 && !searchExecuted) {
-                                            searchExecuted = true;
-                                            var url = urlSoFar;
-
-                                            abortActiveRequest();
-
-                                            if (typeof onStreaming === "function") {
-                                                var fetchStatus = "🔍 Fetching webpage content: " + url + "...";
-                                                var statusTextFetch = TextHelpers.formatThinking(accumulatedReasoning) + fetchStatus;
-                                                onStreaming(statusTextFetch);
-                                            }
-
-                                            Search.fetchWebpage(url, function (webpageText) {
-                                                var updatedMessages = appendToLastUserMessage(
-                                                    messages,
-                                                    "\n\n[Webpage Content for \"" + url + "\"]\n" + webpageText
-                                                );
-                                                sendMessage(updatedMessages, recursiveConfig, onStreaming, onComplete, onError);
-                                            }, function (fetchError) {
+                                                    var updatedMessages = appendToLastUserMessage(
+                                                        messages,
+                                                         "\n\n[Web Search Failed: " + searchError + "]"
+                                                     );
+                                                     setTimeout(function () {
+                                                         if (_stoppedByUser) return;
+                                                         sendMessage(updatedMessages, recursiveConfig, onStreaming, onComplete, onError);
+                                                     }, 1500);
+                                                 });
+                                                 return;
+                                            } else if (!searchExecuted) {
                                                 if (typeof onStreaming === "function") {
-                                                    var fetchFailureStatus = "⚠ Webpage Fetch Failed: " + fetchError + "\n\nGenerating response without webpage content...";
-                                                    var failureStatusTextFetch = TextHelpers.formatThinking(accumulatedReasoning) + fetchFailureStatus;
-                                                    onStreaming(failureStatusTextFetch);
+                                                    var liveSearchStatus = "🔍 Web Search: " + querySoFar + "...";
+                                                    var liveStatusText = TextHelpers.formatThinking(accumulatedReasoning) + liveSearchStatus;
+                                                    onStreaming(liveSearchStatus);
+                                                }
+                                            }
+                                        } else if (config.searchEnabled && fetchMatch) {
+                                            var urlSoFar = fetchMatch[1].trim();
+                                            var closingFetchIndex = accumulatedText.indexOf("]", accumulatedText.indexOf(fetchMatch[0]));
+
+                                            if (closingFetchIndex !== -1 && !searchExecuted) {
+                                                searchExecuted = true;
+                                                var url = urlSoFar;
+
+                                                abortActiveRequest();
+
+                                                if (typeof onStreaming === "function" && !_stoppedByUser) {
+                                                    var fetchStatus = "🔍 Fetching webpage content: " + url + "...";
+                                                    var statusTextFetch = TextHelpers.formatThinking(accumulatedReasoning) + fetchStatus;
+                                                    onStreaming(statusTextFetch);
                                                 }
 
-                                                var updatedMessages = appendToLastUserMessage(
-                                                    messages,
-                                                    "\n\n[Webpage Fetch Failed: " + fetchError + "]"
-                                                );
-                                                setTimeout(function () {
+                                                Search.fetchWebpage(url, function (webpageText) {
+                                                    if (_stoppedByUser) return;
+                                                    var updatedMessages = appendToLastUserMessage(
+                                                        messages,
+                                                        "\n\n[Webpage Content for \"" + url + "\"]\n" + webpageText
+                                                    );
                                                     sendMessage(updatedMessages, recursiveConfig, onStreaming, onComplete, onError);
-                                                }, 1500);
-                                            });
-                                            return;
-                                        } else if (!searchExecuted) {
-                                            if (typeof onStreaming === "function") {
-                                                var liveFetchStatus = "🔍 Fetching: " + urlSoFar + "...";
-                                                var liveStatusTextFetch = TextHelpers.formatThinking(accumulatedReasoning) + liveFetchStatus;
-                                                onStreaming(liveStatusTextFetch);
+                                                }, function (fetchError) {
+                                                    if (typeof onStreaming === "function") {
+                                                        var fetchFailureStatus = "⚠ Webpage Fetch Failed: " + fetchError + "\n\nGenerating response without webpage content...";
+                                                        var failureStatusTextFetch = TextHelpers.formatThinking(accumulatedReasoning) + fetchFailureStatus;
+                                                        onStreaming(failureStatusTextFetch);
+                                                    }
+
+                                                    var updatedMessages = appendToLastUserMessage(
+                                                        messages,
+                                                         "\n\n[Webpage Fetch Failed: " + fetchError + "]"
+                                                     );
+                                                     setTimeout(function () {
+                                                         if (_stoppedByUser) return;
+                                                         sendMessage(updatedMessages, recursiveConfig, onStreaming, onComplete, onError);
+                                                     }, 1500);
+                                                 });
+                                                 return;
+                                             } else if (!searchExecuted) {
+                                                if (typeof onStreaming === "function") {
+                                                    var liveFetchStatus = "🔍 Fetching: " + urlSoFar + "...";
+                                                    var liveStatusTextFetch = TextHelpers.formatThinking(accumulatedReasoning) + liveFetchStatus;
+                                                    onStreaming(liveStatusTextFetch);
+                                                }
                                             }
-                                        }
-                                    } else {
-                                        if (typeof onStreaming === "function") {
-                                            onStreaming(displayText);
+                                        } else {
+                                            if (typeof onStreaming === "function") {
+                                                onStreaming(displayText);
+                                            }
                                         }
                                     }
                                 }
                             }
+                        } catch (e) {
+                            // Ignore partial JSON chunks
                         }
-                    } catch (e) {
-                        // Ignore partial JSON chunks
                     }
                 }
             }
-        }
 
-        if (xhr.readyState === 4) {
-            _activeXhr = null;
+            if (xhr.readyState === 4) {
+                _activeXhr = null;
 
-            // Fallback: If search or fetch was triggered but closing bracket was never received, trigger now!
-            var fallbackMatch = accumulatedText.match(/\[search:\s*([^\]]*)/i);
-            var fallbackFetchMatch = accumulatedText.match(/\[fetch:\s*([^\]]*)/i);
+                // Fallback: If search or fetch was triggered but closing bracket was never received, trigger now!
+                var fallbackMatch = accumulatedText.match(/\[search:\s*([^\]]*)/i);
+                var fallbackFetchMatch = accumulatedText.match(/\[fetch:\s*([^\]]*)/i);
 
-            if (config.searchEnabled && fallbackMatch && !searchExecuted) {
-                searchExecuted = true;
-                var fallbackQuery = fallbackMatch[1].trim();
-                var fallbackDisplayText = TextHelpers.formatThinking(accumulatedReasoning);
+                if (config.searchEnabled && fallbackMatch && !searchExecuted) {
+                    searchExecuted = true;
+                    var fallbackQuery = fallbackMatch[1].trim();
+                    var fallbackDisplayText = TextHelpers.formatThinking(accumulatedReasoning);
 
-                if (typeof onStreaming === "function") {
-                    var fallbackSearchStatus = "🔍 Searching the web for \"" + fallbackQuery + "\"...";
-                    onStreaming(fallbackDisplayText + fallbackSearchStatus);
-                }
-
-                Search.executeSearch(fallbackQuery, config, function (resultsText) {
-                    var updatedMessages = appendToLastUserMessage(
-                        messages,
-                        "\n\n[Web Search Results for \"" + fallbackQuery + "\"]\n" + resultsText
-                    );
-                    sendMessage(updatedMessages, recursiveConfig, onStreaming, onComplete, onError);
-                }, function (searchError) {
                     if (typeof onStreaming === "function") {
-                        var searchFailureStatus = "⚠ Web Search Failed: " + searchError + "\n\nGenerating response without search results...";
-                        var failureStatusText = TextHelpers.formatThinking(accumulatedReasoning) + searchFailureStatus;
-                        onStreaming(failureStatusText);
+                        var fallbackSearchStatus = "🔍 Searching the web for \"" + fallbackQuery + "\"...";
+                        onStreaming(fallbackDisplayText + fallbackSearchStatus);
                     }
-                    var updatedMessages = appendToLastUserMessage(
-                        messages,
-                        "\n\n[Web Search Failed: " + searchError + "]"
-                    );
-                    setTimeout(function () {
+
+                    Search.executeSearch(fallbackQuery, config, function (resultsText) {
+                        if (_stoppedByUser) return;
+                        var updatedMessages = appendToLastUserMessage(
+                            messages,
+                            "\n\n[Web Search Results for \"" + fallbackQuery + "\"]\n" + resultsText
+                        );
                         sendMessage(updatedMessages, recursiveConfig, onStreaming, onComplete, onError);
-                    }, 1500);
-                });
-                return;
-            } else if (config.searchEnabled && fallbackFetchMatch && !searchExecuted) {
-                searchExecuted = true;
-                var fallbackUrl = fallbackFetchMatch[1].trim();
-                var fallbackDisplayText = TextHelpers.formatThinking(accumulatedReasoning);
-
-                if (typeof onStreaming === "function") {
-                    onStreaming(fallbackDisplayText + "🔍 Fetching webpage content: " + fallbackUrl + "...");
-                }
-
-                Search.fetchWebpage(fallbackUrl, function (webpageText) {
-                    var updatedMessages = appendToLastUserMessage(
-                        messages,
-                        "\n\n[Webpage Content for \"" + fallbackUrl + "\"]\n" + webpageText
-                    );
-                    sendMessage(updatedMessages, recursiveConfig, onStreaming, onComplete, onError);
-                }, function (fetchError) {
-                    if (typeof onStreaming === "function") {
-                        onStreaming(fallbackDisplayText + "⚠ Webpage Fetch Failed: " + fetchError);
-                    }
-                    var updatedMessages = appendToLastUserMessage(
-                        messages,
-                        "\n\n[Webpage Fetch Failed: " + fetchError + "]"
-                    );
-                    setTimeout(function () {
-                        sendMessage(updatedMessages, recursiveConfig, onStreaming, onComplete, onError);
-                    }, 1500);
-                });
-                return;
-            }
-
-            if (searchExecuted) return;
-
-            if (xhr.status === 0 && accumulatedText === "") {
-                if (typeof onError === "function") {
-                    onError("Network error or request was cancelled.");
-                }
-                return;
-            }
-            if (xhr.status !== 200 && accumulatedText === "") {
-                if (typeof onError === "function") {
-                    var statusMsg = "HTTP " + xhr.status;
-                    try {
-                        var errBody = JSON.parse(xhr.responseText);
-                        if (errBody.error && errBody.error.message) {
-                            statusMsg = errBody.error.message;
+                    }, function (searchError) {
+                        if (typeof onStreaming === "function") {
+                            var searchFailureStatus = "⚠ Web Search Failed: " + searchError + "\n\nGenerating response without search results...";
+                            var failureStatusText = TextHelpers.formatThinking(accumulatedReasoning) + searchFailureStatus;
+                            onStreaming(failureStatusText);
                         }
-                    } catch (e) { }
-                    onError(statusMsg);
-                }
-                return;
-            }
-            if (typeof onComplete === "function") {
-                var finalDisplayText = TextHelpers.formatThinking(accumulatedReasoning) + accumulatedText;
-                onComplete(finalDisplayText, usageData);
-            }
-        }
-    };
+                        var updatedMessages = appendToLastUserMessage(
+                            messages,
+                            "\n\n[Web Search Failed: " + searchError + "]"
+                        );
+                        setTimeout(function () {
+                            if (_stoppedByUser) return;
+                            sendMessage(updatedMessages, recursiveConfig, onStreaming, onComplete, onError);
+                        }, 1500);
+                    });
+                    return;
+                } else if (config.searchEnabled && fallbackFetchMatch && !searchExecuted) {
+                    searchExecuted = true;
+                    var fallbackUrl = fallbackFetchMatch[1].trim();
+                    var fallbackDisplayText = TextHelpers.formatThinking(accumulatedReasoning);
 
-    xhr.send(data);
-    return xhr;
+                    if (typeof onStreaming === "function") {
+                        onStreaming(fallbackDisplayText + "🔍 Fetching webpage content: " + fallbackUrl + "...");
+                    }
+
+                    Search.fetchWebpage(fallbackUrl, function (webpageText) {
+                        if (_stoppedByUser) return;
+                        var updatedMessages = appendToLastUserMessage(
+                            messages,
+                            "\n\n[Webpage Content for \"" + fallbackUrl + "\"]\n" + webpageText
+                        );
+                        sendMessage(updatedMessages, recursiveConfig, onStreaming, onComplete, onError);
+                    }, function (fetchError) {
+                        if (typeof onStreaming === "function") {
+                            onStreaming(fallbackDisplayText + "⚠ Webpage Fetch Failed: " + fetchError);
+                        }
+                        var updatedMessages = appendToLastUserMessage(
+                            messages,
+                            "\n\n[Webpage Fetch Failed: " + fetchError + "]"
+                        );
+                        setTimeout(function () {
+                            if (_stoppedByUser) return;
+                            sendMessage(updatedMessages, recursiveConfig, onStreaming, onComplete, onError);
+                        }, 1500);
+                    });
+                    return;
+                }
+
+                if (searchExecuted) return;
+
+                if (xhr.status === 0 && accumulatedText === "") {
+                    if (tryFallback && !_stoppedByUser) {
+                        console.log("DEBUG: Proxy request failed (status 0). Falling back to direct URL:", directUrl);
+                        executeSend(directUrl, false);
+                        return;
+                    }
+                    if (typeof onError === "function") {
+                        onError("Network error or request was cancelled.");
+                    }
+                    return;
+                }
+                if (xhr.status !== 200 && accumulatedText === "") {
+                    if (typeof onError === "function") {
+                        var statusMsg = "HTTP " + xhr.status;
+                        try {
+                            var errBody = JSON.parse(xhr.responseText);
+                            if (errBody.error && errBody.error.message) {
+                                statusMsg = errBody.error.message;
+                            }
+                        } catch (e) { }
+                        onError(statusMsg);
+                    }
+                    return;
+                }
+                if (typeof onComplete === "function" && !_stoppedByUser) {
+                    var finalDisplayText = TextHelpers.formatThinking(accumulatedReasoning) + accumulatedText;
+                    onComplete(finalDisplayText, usageData);
+                }
+            }
+        };
+
+        xhr.send(data);
+    }
 }
 
 // ──────────────────────────────────────────────
@@ -638,4 +703,20 @@ function fetchModels(config, onSuccess, onError) {
     };
 
     xhr.send();
+}
+
+function unloadModel(config) {
+    var isOllama = config.apiProvider === "ollama" || 
+                   (config.apiUrl || "").indexOf("11434") !== -1 || 
+                   (config.apiUrl || "").indexOf("ollama") !== -1;
+    if (!isOllama) return;
+    var baseUrl = (config.apiUrl || "http://localhost:11434/v1").replace(/\/$/, "");
+    var url = baseUrl.replace(/\/v1$/, "") + "/api/generate";
+    var xhr = new XMLHttpRequest();
+    xhr.open("POST", url, true);
+    xhr.setRequestHeader("Content-Type", "application/json");
+    xhr.send(JSON.stringify({
+        model: config.modelName,
+        keep_alive: 0
+    }));
 }

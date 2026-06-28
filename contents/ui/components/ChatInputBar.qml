@@ -135,7 +135,6 @@ RowLayout {
             enabled: root.isStreaming
             visible: root.isStreaming
             onClicked: {
-                fullRepRoot.hideToolTip();
                 root.stopRequested();
             }
             onHoveredChanged: {

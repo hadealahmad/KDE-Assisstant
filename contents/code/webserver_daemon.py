@@ -574,6 +574,10 @@ class WebServerHandler(BaseHTTPRequestHandler):
 
         if path == '/api/messages':
             self.handle_post_message(data)
+        elif path == '/api/proxy/chat/completions':
+            self.handle_proxy_chat_completions(data)
+        elif path == '/api/proxy/abort':
+            self.handle_proxy_abort(data)
         elif path == '/api/tasks/toggle':
             self.handle_tasks_toggle(data)
         elif path == '/api/memories/delete':
@@ -609,6 +613,93 @@ class WebServerHandler(BaseHTTPRequestHandler):
         messages = [dict(r) for r in rows]
         conn.close()
         self._send_json(200, messages)
+
+    def handle_proxy_abort(self, data):
+        parsed_url = urllib.parse.urlparse(self.path)
+        query = urllib.parse.parse_qs(parsed_url.query)
+        request_id = query.get('request_id', [None])[0]
+        logger.info(f"PROXY: Received abort request for request_id: {request_id}")
+        if request_id:
+            response = self.server.active_requests.pop(request_id, None)
+            if response:
+                try:
+                    response.close()
+                    logger.info(f"PROXY: Successfully closed response for request_id: {request_id}")
+                except Exception as e:
+                    logger.error(f"PROXY: Error closing response: {e}")
+        self.send_response(200)
+        self._send_cors_headers()
+        self.end_headers()
+        try:
+            self.wfile.write(json.dumps({"status": "aborted"}).encode('utf-8'))
+        except Exception:
+            pass
+
+    def handle_proxy_chat_completions(self, data):
+        parsed_url = urllib.parse.urlparse(self.path)
+        query = urllib.parse.parse_qs(parsed_url.query)
+        request_id = query.get('request_id', [None])[0]
+        logger.info(f"PROXY: Starting stream for request_id: {request_id}")
+
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/event-stream')
+        self.send_header('Cache-Control', 'no-cache')
+        self.send_header('Connection', 'close')
+        self._send_cors_headers()
+        self.end_headers()
+        self.wfile.flush()
+
+        api_url = self.server.llm_args.get('api_url', "http://localhost:11434/v1")
+        api_key = self.server.llm_args.get('api_key', "")
+        
+        if api_url.endswith('/'):
+            api_url = api_url[:-1]
+        endpoint = f"{api_url}/chat/completions"
+
+        data["stream"] = True
+
+        req = urllib.request.Request(endpoint, data=json.dumps(data).encode('utf-8'))
+        req.add_header('Content-Type', 'application/json')
+        req.add_header('Connection', 'close')
+        if api_key:
+            req.add_header('Authorization', f'Bearer {api_key}')
+
+        # Build opener that ignores system proxies for local loopback
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        try:
+            with opener.open(req, timeout=300) as response:
+                if request_id:
+                    self.server.active_requests[request_id] = response
+                try:
+                    for line in response:
+                        if not line.strip():
+                            continue
+                        line_str = line.decode('utf-8').strip()
+                        if line_str.startswith('data: '):
+                            data_content = line_str[6:]
+                            if data_content == '[DONE]':
+                                self.wfile.write(b"data: [DONE]\n\n")
+                                self.wfile.flush()
+                                break
+                            try:
+                                chunk = json.loads(data_content)
+                                self.wfile.write(f"data: {json.dumps(chunk)}\n\n".encode('utf-8'))
+                                self.wfile.flush()
+                            except (ConnectionError, BrokenPipeError, OSError):
+                                logger.info("Proxy client disconnected. Stopping stream.")
+                                break
+                            except Exception:
+                                pass
+                finally:
+                    if request_id:
+                        self.server.active_requests.pop(request_id, None)
+        except Exception as e:
+            logger.error("Error in proxy_chat_completions: %s", e)
+            err_msg = f"Error: {str(e)}"
+            try:
+                self.wfile.write(f"data: {json.dumps({'error': err_msg})}\n\n".encode('utf-8'))
+            except Exception:
+                pass
 
     def handle_post_message(self, data):
         session_id = data.get('session_id')
@@ -646,6 +737,7 @@ class WebServerHandler(BaseHTTPRequestHandler):
         self.send_header('Connection', 'keep-alive')
         self._send_cors_headers()
         self.end_headers()
+        self.wfile.flush()
 
         try:
             full_response = self.stream_llm(history)
@@ -865,11 +957,14 @@ class WebServerHandler(BaseHTTPRequestHandler):
 
         req = urllib.request.Request(endpoint, data=json.dumps(post_fields).encode('utf-8'))
         req.add_header('Content-Type', 'application/json')
+        req.add_header('Connection', 'close')
         if api_key:
             req.add_header('Authorization', f'Bearer {api_key}')
 
         full_response = ""
-        with urllib.request.urlopen(req, timeout=300) as response:
+        # Build opener that ignores system proxies for local loopback
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(req, timeout=300) as response:
             for line in response:
                 if not line.strip():
                     continue
@@ -878,16 +973,23 @@ class WebServerHandler(BaseHTTPRequestHandler):
                     data_content = line_str[6:]
                     if data_content == '[DONE]':
                         break
+                    content = ''
                     try:
                         chunk = json.loads(data_content)
                         delta = chunk.get('choices', [{}])[0].get('delta', {})
                         content = delta.get('content', '')
                         if content:
                             full_response += content
-                            self.wfile.write(f"data: {json.dumps({'content': content})}\n\n".encode('utf-8'))
-                            self.wfile.flush()
                     except Exception:
                         pass
+
+                    if content:
+                        try:
+                            self.wfile.write(f"data: {json.dumps({'content': content})}\n\n".encode('utf-8'))
+                            self.wfile.flush()
+                        except (ConnectionError, BrokenPipeError, OSError):
+                            logger.info("Client disconnected. Stopping stream.")
+                            break
         return full_response
 
     def handle_get_tasks(self):
@@ -1120,10 +1222,22 @@ def main():
     logger.info("Database path: %s", db_path)
     logger.info("Static directory: %s", args.static_dir)
 
-    server = ThreadingHTTPServer((args.bind, args.port), WebServerHandler)
+    server = None
+    for attempt in range(10):
+        try:
+            server = ThreadingHTTPServer((args.bind, args.port), WebServerHandler)
+            break
+        except OSError as e:
+            logger.info("Port %d is in use, retrying in 1s (attempt %d/10)...", args.port, attempt + 1)
+            time.sleep(1)
+    if not server:
+        logger.error("Failed to bind to port %d after 10 attempts.", args.port)
+        sys.exit(1)
+
     server.token = args.token
     server.static_dir = os.path.abspath(args.static_dir)
     server.db_path = db_path
+    server.active_requests = {}
     server.llm_args = {
         "api_url": args.api_url,
         "api_key": args.api_key,

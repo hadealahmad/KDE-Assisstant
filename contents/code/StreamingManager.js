@@ -30,7 +30,10 @@ function getApiConfig(configuration, memoryContents, appletContents) {
         applets: appletContents || [],
         prayerLatitude: configuration.prayerLatitude,
         prayerLongitude: configuration.prayerLongitude,
-        prayerMethod: configuration.prayerMethod
+        prayerMethod: configuration.prayerMethod,
+        apiProvider: configuration.apiProvider,
+        webserverPort: configuration.webserverPort,
+        webserverToken: configuration.webserverToken
     };
 }
 

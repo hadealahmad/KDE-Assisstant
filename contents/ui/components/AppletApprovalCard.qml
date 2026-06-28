@@ -81,6 +81,26 @@ ColumnLayout {
         }
     }
 
+    // Collapsible Code Block
+    CollapsibleBlock {
+        Layout.fillWidth: true
+        title: "View Applet Code"
+        expanded: false
+        visible: root.appletHtml !== "" && root.approvalStatus !== "declined"
+
+        contentItem: TextEdit {
+            readOnly: true
+            wrapMode: TextEdit.WordWrap
+            selectByMouse: true
+            activeFocusOnPress: true
+            textFormat: TextEdit.PlainText
+            text: root.appletHtml
+            color: Kirigami.Theme.textColor
+            font.family: "monospace"
+            font.pointSize: Kirigami.Theme.smallFont.pointSize
+        }
+    }
+
     // Approve/Decline buttons
     RowLayout {
         spacing: Kirigami.Units.smallSpacing
